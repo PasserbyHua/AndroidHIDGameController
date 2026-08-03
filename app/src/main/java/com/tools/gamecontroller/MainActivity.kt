@@ -45,9 +45,28 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.material3.TextField
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.BoxWithConstraints
 
 class MainActivity : ComponentActivity() {
 
+    private var showSwipePad by mutableStateOf(false)
     // 显式指定类型，避免 by lazy 推断失败
     private val bluetoothManager: BluetoothHidManager by lazy { BluetoothHidManager(this) }
     // 在类中添加一个请求权限的状态，避免重复弹窗
@@ -83,11 +102,19 @@ class MainActivity : ComponentActivity() {
         setContent {
             GameControllerTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    GamepadTestScreen(
-                        manager = bluetoothManager,
-                        context = this@MainActivity,
-                        onRequestPermission = { checkAndRequestPermissions() }   // ← 改为单数
-                    )
+                    if (showSwipePad) {
+                        SwipePadScreen(
+                            manager = bluetoothManager,
+                            onBack = { showSwipePad = false }
+                        )
+                    } else {
+                        GamepadTestScreen(
+                            manager = bluetoothManager,
+                            context = this@MainActivity,
+                            onRequestPermission = { checkAndRequestPermissions() },
+                            onSwitchToSwipePad = { showSwipePad = true }
+                        )
+                    }
                 }
             }
         }
@@ -155,7 +182,8 @@ class MainActivity : ComponentActivity() {
 fun GamepadTestScreen(
     manager: BluetoothHidManager,
     context: Context,
-    onRequestPermission: () -> Unit
+    onRequestPermission: () -> Unit,
+    onSwitchToSwipePad: () -> Unit   // 新增
 ) {
     var isConnected by remember { mutableStateOf(manager.isConnected()) }
     var statusText by remember { mutableStateOf(if (isConnected) "已连接" else "未连接") }
@@ -176,7 +204,9 @@ fun GamepadTestScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("蓝牙手柄模拟器", style = MaterialTheme.typography.titleLarge)
-
+        Button(onClick = onSwitchToSwipePad) {
+            Text("切换到滑动按键界面")
+        }
         // 连接按钮
         Button(
             onClick = {
@@ -303,6 +333,106 @@ fun GamepadTestScreen(
             Toast.makeText(context, "已重置所有按键", Toast.LENGTH_SHORT).show()
         }) {
             Text("重置")
+        }
+    }
+}
+@Composable
+fun SwipePadScreen(
+    manager: BluetoothHidManager,
+    onBack: () -> Unit
+) {
+    val gamepad = manager.gamepad
+    val buttons = listOf(
+        BluetoothHidGamepad.BUTTON_A,
+        BluetoothHidGamepad.BUTTON_B,
+        BluetoothHidGamepad.BUTTON_X,
+        BluetoothHidGamepad.BUTTON_Y
+    )
+    val labels = listOf("A", "B", "X", "Y")
+
+    var activeIndex by remember { mutableStateOf(-1) }
+
+    fun handleTouch(x: Float, y: Float, halfWidthPx: Float, halfHeightPx: Float) {
+        if (gamepad == null) return
+        val col = if (x < halfWidthPx) 0 else 1
+        val row = if (y < halfHeightPx) 0 else 1
+        val index = row * 2 + col
+
+        if (index != activeIndex) {
+            if (activeIndex != -1) {
+                gamepad.setButton(buttons[activeIndex], false)
+            }
+            gamepad.setButton(buttons[index], true)
+            activeIndex = index
+        }
+    }
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        when (event.type) {
+                            PointerEventType.Press,
+                            PointerEventType.Move -> {
+                                val position = event.changes.firstOrNull()?.position
+                                if (position != null) {
+                                    val size = this.size
+                                    val halfWidthPx = size.width / 2f
+                                    val halfHeightPx = size.height / 2f
+                                    handleTouch(position.x, position.y, halfWidthPx, halfHeightPx)
+                                }
+                            }
+                            PointerEventType.Release -> {
+                                if (activeIndex != -1 && gamepad != null) {
+                                    gamepad.setButton(buttons[activeIndex], false)
+                                    activeIndex = -1
+                                }
+                            }
+                            else -> {}
+                        }
+                    }
+                }
+            }
+    ) {
+        // 将 Dp 转换为 Float 像素值进行计算，再转回 Dp
+        val halfWidthPx = maxWidth.value / 2
+        val halfHeightPx = maxHeight.value / 2
+
+        for (i in 0 until 4) {
+            val col = i % 2
+            val row = i / 2
+            Box(
+                modifier = Modifier
+                    .offset(
+                        x = (col * halfWidthPx).dp,
+                        y = (row * halfHeightPx).dp
+                    )
+                    .size(halfWidthPx.dp, halfHeightPx.dp)
+                    .background(
+                        if (i == activeIndex) Color.Green else Color.Gray,
+                        shape = RoundedCornerShape(4.dp)
+                    )
+                    .border(1.dp, Color.Black),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = labels[i],
+                    fontSize = 32.sp,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        // 返回按钮
+        Button(
+            onClick = onBack,
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Text("返回")
         }
     }
 }
