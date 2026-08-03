@@ -63,6 +63,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.input.pointer.PointerId
 
 class MainActivity : ComponentActivity() {
 
@@ -342,95 +346,176 @@ fun SwipePadScreen(
     onBack: () -> Unit
 ) {
     val gamepad = manager.gamepad
-    val buttons = listOf(
-        BluetoothHidGamepad.BUTTON_A,
-        BluetoothHidGamepad.BUTTON_B,
-        BluetoothHidGamepad.BUTTON_X,
-        BluetoothHidGamepad.BUTTON_Y
-    )
-    val labels = listOf("A", "B", "X", "Y")
 
-    var activeIndex by remember { mutableStateOf(-1) }
+    // 定义区域ID
+    val REGION_HAT_LEFT = 0
+    val REGION_HAT_RIGHT = 1
+    val REGION_BUTTON_X = 2
+    val REGION_BUTTON_A = 3
 
-    fun handleTouch(x: Float, y: Float, halfWidthPx: Float, halfHeightPx: Float) {
+    // 用于UI显示的状态：当前激活的区域集合
+    var activeRegions by remember { mutableStateOf(setOf<Int>()) }
+
+    // HID 帽子开关标准值：左(6), 右(2), 中立(8)
+    val HAT_LEFT_VAL = 6
+    val HAT_RIGHT_VAL = 2
+    val HAT_NEUTRAL = 8
+
+    // 同步所有按键状态到 HID 设备
+    fun syncHidState(currentRegions: Set<Int>) {
         if (gamepad == null) return
-        val col = if (x < halfWidthPx) 0 else 1
-        val row = if (y < halfHeightPx) 0 else 1
-        val index = row * 2 + col
 
-        if (index != activeIndex) {
-            if (activeIndex != -1) {
-                gamepad.setButton(buttons[activeIndex], false)
-            }
-            gamepad.setButton(buttons[index], true)
-            activeIndex = index
+        // 1. 处理普通按键 (X, A)
+        // 直接根据集合内容设置按键状态
+        gamepad.setButton(BluetoothHidGamepad.BUTTON_X, currentRegions.contains(REGION_BUTTON_X))
+        gamepad.setButton(BluetoothHidGamepad.BUTTON_A, currentRegions.contains(REGION_BUTTON_A))
+
+        // 2. 处理帽子开关
+        // 帽子开关是一个值，不能同时是左和右。
+        // 策略：如果同时触碰到左和右，发送中立值(8)，或者可以根据需要优先响应其中一个
+        val hasLeft = currentRegions.contains(REGION_HAT_LEFT)
+        val hasRight = currentRegions.contains(REGION_HAT_RIGHT)
+
+        val hatValue = when {
+            hasLeft && hasRight -> HAT_NEUTRAL // 冲突时回中
+            hasLeft -> HAT_LEFT_VAL
+            hasRight -> HAT_RIGHT_VAL
+            else -> HAT_NEUTRAL
         }
+        gamepad.setHatSwitch(hatValue)
     }
 
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .pointerInput(Unit) {
+                // 使用 Map 追踪每个手指的状态
+                val activePointers = mutableMapOf<PointerId, Int>()
+
+                // 计算区域边界的辅助逻辑
+                val w = size.width
+                val h = size.height
+                val halfHeightPx = h / 2f
+                val quarterHeightPx = h / 4f
+                val halfWidthPx = w / 2f
+
+                fun getRegion(pos: Offset): Int {
+                    return when {
+                        pos.y < quarterHeightPx -> REGION_HAT_LEFT
+                        pos.y < halfHeightPx -> REGION_HAT_RIGHT
+                        pos.x < halfWidthPx -> REGION_BUTTON_X
+                        else -> REGION_BUTTON_A
+                    }
+                }
+
                 awaitPointerEventScope {
                     while (true) {
                         val event = awaitPointerEvent()
-                        when (event.type) {
-                            PointerEventType.Press,
-                            PointerEventType.Move -> {
-                                val position = event.changes.firstOrNull()?.position
-                                if (position != null) {
-                                    val size = this.size
-                                    val halfWidthPx = size.width / 2f
-                                    val halfHeightPx = size.height / 2f
-                                    handleTouch(position.x, position.y, halfWidthPx, halfHeightPx)
+
+                        // 遍历所有触摸点变化
+                        event.changes.forEach { change ->
+                            val id = change.id
+
+                            if (change.pressed) {
+                                // 手指按下或移动
+                                val region = getRegion(change.position)
+
+                                // 如果该手指是新按下的，或者移动到了新区域
+                                if (activePointers[id] != region) {
+                                    activePointers[id] = region
                                 }
+                            } else {
+                                // 手指抬起
+                                activePointers.remove(id)
                             }
-                            PointerEventType.Release -> {
-                                if (activeIndex != -1 && gamepad != null) {
-                                    gamepad.setButton(buttons[activeIndex], false)
-                                    activeIndex = -1
-                                }
-                            }
-                            else -> {}
+
+                            // 消费事件，避免透传到下层
+                            change.consume()
+                        }
+
+                        // 计算当前所有激活的区域集合
+                        val newActiveRegions = activePointers.values.toSet()
+
+                        // 如果状态发生变化，更新 UI 和 发送 HID 报告
+                        if (newActiveRegions != activeRegions) {
+                            activeRegions = newActiveRegions
+                            syncHidState(newActiveRegions)
                         }
                     }
                 }
             }
     ) {
-        // 将 Dp 转换为 Float 像素值进行计算，再转回 Dp
-        val halfWidthPx = maxWidth.value / 2
-        val halfHeightPx = maxHeight.value / 2
+        // --- 布局绘制部分保持不变 ---
 
-        for (i in 0 until 4) {
-            val col = i % 2
-            val row = i / 2
+        val halfHeight = maxHeight / 2
+        val quarterHeight = maxHeight / 4
+
+        // 1. 上半部分容器 (高度占 50%)
+        Box(modifier = Modifier.fillMaxWidth().height(halfHeight)) {
+            // 1.1 上半部分的上面：帽子左
             Box(
                 modifier = Modifier
-                    .offset(
-                        x = (col * halfWidthPx).dp,
-                        y = (row * halfHeightPx).dp
-                    )
-                    .size(halfWidthPx.dp, halfHeightPx.dp)
-                    .background(
-                        if (i == activeIndex) Color.Green else Color.Gray,
-                        shape = RoundedCornerShape(4.dp)
-                    )
-                    .border(1.dp, Color.Black),
+                    .fillMaxWidth()
+                    .height(quarterHeight)
+                    .background(if (activeRegions.contains(REGION_HAT_LEFT)) Color(0xFF4CAF50) else Color(0xFF757575))
+                    .border(1.dp, Color.White),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = labels[i],
-                    fontSize = 32.sp,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold
-                )
+                Text("Hat Left", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            }
+
+            // 1.2 上半部分的下面：帽子右
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(quarterHeight)
+                    .offset(y = quarterHeight)
+                    .background(if (activeRegions.contains(REGION_HAT_RIGHT)) Color(0xFF4CAF50) else Color(0xFF757575))
+                    .border(1.dp, Color.White),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Hat Right", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        // 2. 下半部分容器 (高度占 50%，位于底部)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(halfHeight)
+                .offset(y = halfHeight)
+        ) {
+            // 2.1 下半部分的左边：X键
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .background(if (activeRegions.contains(REGION_BUTTON_X)) Color(0xFF4CAF50) else Color(0xFF757575))
+                    .border(1.dp, Color.White),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("X", color = Color.White, fontSize = 48.sp, fontWeight = FontWeight.Bold)
+            }
+
+            // 2.2 下半部分的右边：A键
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .background(if (activeRegions.contains(REGION_BUTTON_A)) Color(0xFF4CAF50) else Color(0xFF757575))
+                    .border(1.dp, Color.White),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("A", color = Color.White, fontSize = 48.sp, fontWeight = FontWeight.Bold)
             }
         }
 
         // 返回按钮
         Button(
             onClick = onBack,
-            modifier = Modifier.padding(16.dp)
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(16.dp)
         ) {
             Text("返回")
         }
