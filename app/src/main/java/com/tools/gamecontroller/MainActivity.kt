@@ -42,6 +42,9 @@ import com.tools.gamecontroller.ui.theme.GameControllerTheme
 import kotlinx.coroutines.delay
 import android.provider.Settings
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import androidx.compose.material3.TextField
 
 class MainActivity : ComponentActivity() {
 
@@ -152,7 +155,7 @@ class MainActivity : ComponentActivity() {
 fun GamepadTestScreen(
     manager: BluetoothHidManager,
     context: Context,
-    onRequestPermission: () -> Unit   // 新增参数
+    onRequestPermission: () -> Unit
 ) {
     var isConnected by remember { mutableStateOf(manager.isConnected()) }
     var statusText by remember { mutableStateOf(if (isConnected) "已连接" else "未连接") }
@@ -165,6 +168,8 @@ fun GamepadTestScreen(
         }
     }
 
+    var inputMask by remember { mutableStateOf("0x01") }
+
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -172,10 +177,9 @@ fun GamepadTestScreen(
     ) {
         Text("蓝牙手柄模拟器", style = MaterialTheme.typography.titleLarge)
 
-        // 连接按钮（使用新的逻辑）
+        // 连接按钮
         Button(
             onClick = {
-                // 根据系统版本检查对应权限
                 val hasPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
                 } else {
@@ -186,13 +190,11 @@ fun GamepadTestScreen(
                     Toast.makeText(context, "请授予必要权限", Toast.LENGTH_SHORT).show()
                     return@Button
                 }
-                // 权限已授予，获取设备列表
                 val devices = manager.getPairedDevices()
                 if (devices.isEmpty()) {
                     Toast.makeText(context, "没有已配对的蓝牙设备，请先在系统设置中配对", Toast.LENGTH_LONG).show()
                     return@Button
                 }
-                // 显示设备列表对话框
                 val deviceNames = devices.map { it.name ?: "未知设备" }.toTypedArray()
                 AlertDialog.Builder(context)
                     .setTitle("选择要连接的设备")
@@ -204,63 +206,101 @@ fun GamepadTestScreen(
                     .setNegativeButton("取消", null)
                     .show()
             }
-        ) { Text("连接已配对设备") }
+        ) {
+            Text("连接已配对设备")
+        }
 
         Text("状态: $statusText", style = MaterialTheme.typography.bodyLarge)
 
         Divider()
 
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            GamepadButton("A", manager.gamepad, BluetoothHidGamepad.BUTTON_A)
-            GamepadButton("B", manager.gamepad, BluetoothHidGamepad.BUTTON_B)
-            GamepadButton("X", manager.gamepad, BluetoothHidGamepad.BUTTON_X)
-            GamepadButton("Y", manager.gamepad, BluetoothHidGamepad.BUTTON_Y)
+        var hatValue by remember { mutableStateOf("0") }
+
+        Text("帽子开关值 (0-15, 8或15可能为复位)", style = MaterialTheme.typography.bodySmall)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextField(
+                value = hatValue,
+                onValueChange = { hatValue = it },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                label = { Text("方向值 (0-15)") }
+            )
+            Button(
+                onClick = {
+                    val gamepad = manager.gamepad
+                    if (gamepad == null) {
+                        Toast.makeText(context, "请先连接设备", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    val value = hatValue.toIntOrNull()
+                    if (value == null || value !in 0..15) {
+                        Toast.makeText(context, "请输入 0-15 之间的整数", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    // 直接调用 setHatSwitch，但需要修改该方法允许 0-15
+                    gamepad.setHatSwitch(value)
+                    Toast.makeText(context, "发送方向值: $value", Toast.LENGTH_SHORT).show()
+                }
+            ) {
+                Text("发送方向")
+            }
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            GamepadButton("LB", manager.gamepad, BluetoothHidGamepad.BUTTON_LB)
-            GamepadButton("RB", manager.gamepad, BluetoothHidGamepad.BUTTON_RB)
-            GamepadButton("Start", manager.gamepad, BluetoothHidGamepad.BUTTON_START)
-            GamepadButton("Select", manager.gamepad, BluetoothHidGamepad.BUTTON_SELECT)
+        // 输入框和发送按钮
+        Text("输入按键掩码 (十六进制, 如 0x01, 0x02)", style = MaterialTheme.typography.bodySmall)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextField(
+                value = inputMask,
+                onValueChange = { inputMask = it },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                label = { Text("掩码 (十六进制)") }
+            )
+            Button(
+                onClick = {
+                    val gamepad = manager.gamepad
+                    if (gamepad == null) {
+                        Toast.makeText(context, "请先连接设备", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    val mask = try {
+                        val trimmed = inputMask.trim()
+                        if (trimmed.startsWith("0x", ignoreCase = true)) {
+                            trimmed.substring(2).toInt(16)
+                        } else {
+                            trimmed.toInt(16) // 默认按十六进制解析
+                        }
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "无效的掩码值，请使用十六进制", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    // 发送按下
+                    gamepad.setButton(mask, true)
+                    // 延迟 100ms 后释放
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        gamepad.setButton(mask, false)
+                    }, 1000)
+                    Toast.makeText(context, "发送掩码 0x${mask.toString(16)}", Toast.LENGTH_SHORT).show()
+                }
+            ) {
+                Text("发送按键")
+            }
         }
 
-        var leftX by remember { mutableStateOf(0f) }
-        var leftY by remember { mutableStateOf(0f) }
-        var rightX by remember { mutableStateOf(0f) }
+        // 显示当前按钮状态（方便对照）
+        val currentState = manager.gamepad?.getButtonState() ?: 0
+        Text("当前按钮状态: 0x${currentState.toString(16)}", style = MaterialTheme.typography.bodySmall)
 
-        Text("左摇杆 X")
-        Slider(
-            value = leftX,
-            onValueChange = {
-                leftX = it
-                manager.gamepad?.setLeftStick((it * 127).toInt(), (leftY * 127).toInt())
-            },
-            valueRange = -1f..1f
-        )
-        Text("左摇杆 Y")
-        Slider(
-            value = leftY,
-            onValueChange = {
-                leftY = it
-                manager.gamepad?.setLeftStick((leftX * 127).toInt(), (it * 127).toInt())
-            },
-            valueRange = -1f..1f
-        )
-        Text("右摇杆 X")
-        Slider(
-            value = rightX,
-            onValueChange = {
-                rightX = it
-                manager.gamepad?.setRightStick((it * 127).toInt())
-            },
-            valueRange = -1f..1f
-        )
-
+        // 重置按钮
         Button(onClick = {
             manager.gamepad?.reset()
-            leftX = 0f
-            leftY = 0f
-            rightX = 0f
+            Toast.makeText(context, "已重置所有按键", Toast.LENGTH_SHORT).show()
         }) {
             Text("重置")
         }
