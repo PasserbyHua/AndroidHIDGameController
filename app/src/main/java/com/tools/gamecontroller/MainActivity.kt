@@ -358,6 +358,7 @@ fun SwipePadScreen(
     val REGION_HAT_RIGHT = 1
     val REGION_BUTTON_X = 2
     val REGION_BUTTON_A = 3
+    val REGION_BUTTON_B = 4 // 新增 B 键
 
     // --- 2. 输入寄存器 ---
     var visualRegions by remember { mutableStateOf(setOf<Int>()) }
@@ -366,13 +367,13 @@ fun SwipePadScreen(
     LaunchedEffect(Unit) {
         Log.d(TAG, "启动轮询循环: 125Hz")
         while (true) {
-            // [A. 快照读取]
             val currentRegions = visualRegions
 
             // [B. 逻辑计算]
             var btnState = 0
             if (currentRegions.contains(REGION_BUTTON_X)) btnState = btnState or BluetoothHidGamepad.BUTTON_X
             if (currentRegions.contains(REGION_BUTTON_A)) btnState = btnState or BluetoothHidGamepad.BUTTON_A
+            if (currentRegions.contains(REGION_BUTTON_B)) btnState = btnState or BluetoothHidGamepad.BUTTON_B // 新增 B 键逻辑
 
             val hasLeft = currentRegions.contains(REGION_HAT_LEFT)
             val hasRight = currentRegions.contains(REGION_HAT_RIGHT)
@@ -384,13 +385,8 @@ fun SwipePadScreen(
                 else -> 8
             }
 
-            // [C. 写入设备]
             gamepad?.setState(btnState, hatValue)
-
-            // [D. 上报]
             gamepad?.sendReport()
-
-            // [E. 延时] 8ms 对应 125Hz
             delay(8)
         }
     }
@@ -409,10 +405,21 @@ fun SwipePadScreen(
 
                         event.changes.forEach { change ->
                             if (change.pressed) {
+                                // 根据新的布局计算区域
+                                // 布局比例：上部Hat占0.4，中部B占0.2，下部X/A占0.4
+                                val h = size.height
+                                val w = size.width
+
                                 val region = when {
-                                    change.position.y < size.height / 4f -> REGION_HAT_LEFT
-                                    change.position.y < size.height / 2f -> REGION_HAT_RIGHT
-                                    change.position.x < size.width / 2f -> REGION_BUTTON_X
+                                    // 上部 2/5 (0.0 - 0.4)：Hat区域
+                                    change.position.y < h * 0.2f -> REGION_HAT_LEFT      // 上半部分
+                                    change.position.y < h * 0.4f -> REGION_HAT_RIGHT     // 下半部分
+
+                                    // 中部 1/5 (0.4 - 0.6)：B 键区域
+                                    change.position.y < h * 0.6f -> REGION_BUTTON_B
+
+                                    // 下部 2/5 (0.6 - 1.0)：X/A 键区域
+                                    change.position.x < w / 2f -> REGION_BUTTON_X
                                     else -> REGION_BUTTON_A
                                 }
                                 currentTouches[change.id] = region
@@ -431,26 +438,40 @@ fun SwipePadScreen(
             }
     ) {
         // --- UI 绘制 ---
-        val halfHeight = maxHeight / 2
-        val quarterHeight = maxHeight / 4
+        // 计算各部分高度
+        val hatHeight = maxHeight * 0.4f  // 上部 2/5
+        val bHeight = maxHeight * 0.2f    // 中部 1/5
+        val xaHeight = maxHeight * 0.4f   // 下部 2/5
 
-        Box(modifier = Modifier.fillMaxWidth().height(halfHeight)) {
+        // 1. 上部：帽子区域 (Left 和 Right 平分高度)
+        Box(modifier = Modifier.fillMaxWidth().height(hatHeight)) {
             Box(
-                modifier = Modifier.fillMaxWidth().height(quarterHeight)
+                modifier = Modifier.fillMaxWidth().height(hatHeight / 2)
                     .background(if (visualRegions.contains(REGION_HAT_LEFT)) Color(0xFF4CAF50) else Color(0xFF757575))
                     .border(1.dp, Color.White),
                 contentAlignment = Alignment.Center
             ) { Text("Hat Left", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold) }
 
             Box(
-                modifier = Modifier.fillMaxWidth().height(quarterHeight).offset(y = quarterHeight)
+                modifier = Modifier.fillMaxWidth().height(hatHeight / 2).offset(y = hatHeight / 2)
                     .background(if (visualRegions.contains(REGION_HAT_RIGHT)) Color(0xFF4CAF50) else Color(0xFF757575))
                     .border(1.dp, Color.White),
                 contentAlignment = Alignment.Center
             ) { Text("Hat Right", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold) }
         }
 
-        Row(modifier = Modifier.fillMaxWidth().height(halfHeight).offset(y = halfHeight)) {
+        // 2. 中部：B 键区域
+        Box(
+            modifier = Modifier.fillMaxWidth().height(bHeight).offset(y = hatHeight)
+                .background(if (visualRegions.contains(REGION_BUTTON_B)) Color(0xFF4CAF50) else Color(0xFF757575))
+                .border(1.dp, Color.White),
+            contentAlignment = Alignment.Center
+        ) { Text("B", color = Color.White, fontSize = 48.sp, fontWeight = FontWeight.Bold) }
+
+        // 3. 下部：X 和 A 键区域
+        Row(
+            modifier = Modifier.fillMaxWidth().height(xaHeight).offset(y = hatHeight + bHeight)
+        ) {
             Box(
                 modifier = Modifier.weight(1f).fillMaxHeight()
                     .background(if (visualRegions.contains(REGION_BUTTON_X)) Color(0xFF4CAF50) else Color(0xFF757575))
