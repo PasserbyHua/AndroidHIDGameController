@@ -358,7 +358,8 @@ fun SwipePadScreen(
     val REGION_HAT_RIGHT = 1
     val REGION_BUTTON_X = 2
     val REGION_BUTTON_A = 3
-    val REGION_BUTTON_B = 4 // 新增 B 键
+    val REGION_BUTTON_B = 4 // B 键
+    val REGION_BUTTON_MENU = 5 // MENU 键
 
     // --- 2. 输入寄存器 ---
     var visualRegions by remember { mutableStateOf(setOf<Int>()) }
@@ -373,7 +374,8 @@ fun SwipePadScreen(
             var btnState = 0
             if (currentRegions.contains(REGION_BUTTON_X)) btnState = btnState or BluetoothHidGamepad.BUTTON_X
             if (currentRegions.contains(REGION_BUTTON_A)) btnState = btnState or BluetoothHidGamepad.BUTTON_A
-            if (currentRegions.contains(REGION_BUTTON_B)) btnState = btnState or BluetoothHidGamepad.BUTTON_B // 新增 B 键逻辑
+            if (currentRegions.contains(REGION_BUTTON_B)) btnState = btnState or BluetoothHidGamepad.BUTTON_B
+            if (currentRegions.contains(REGION_BUTTON_MENU)) btnState = btnState or BluetoothHidGamepad.BUTTON_START
 
             val hasLeft = currentRegions.contains(REGION_HAT_LEFT)
             val hasRight = currentRegions.contains(REGION_HAT_RIGHT)
@@ -415,8 +417,10 @@ fun SwipePadScreen(
                                     change.position.y < h * 0.2f -> REGION_HAT_LEFT      // 上半部分
                                     change.position.y < h * 0.4f -> REGION_HAT_RIGHT     // 下半部分
 
-                                    // 中部 1/5 (0.4 - 0.6)：B 键区域
-                                    change.position.y < h * 0.6f -> REGION_BUTTON_B
+                                    // 中部 1/5 (0.4 - 0.6)：B / MENU 键区域
+                                    change.position.y < h * 0.6f -> {
+                                        if (change.position.x < w / 2f) REGION_BUTTON_B else REGION_BUTTON_MENU
+                                    }
 
                                     // 下部 2/5 (0.6 - 1.0)：X/A 键区域
                                     change.position.x < w / 2f -> REGION_BUTTON_X
@@ -460,13 +464,24 @@ fun SwipePadScreen(
             ) { Text("Hat Right", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold) }
         }
 
-        // 2. 中部：B 键区域
-        Box(
+        // 2. 中部：B 和 MENU 键区域
+        Row(
             modifier = Modifier.fillMaxWidth().height(bHeight).offset(y = hatHeight)
-                .background(if (visualRegions.contains(REGION_BUTTON_B)) Color(0xFF4CAF50) else Color(0xFF757575))
-                .border(1.dp, Color.White),
-            contentAlignment = Alignment.Center
-        ) { Text("B", color = Color.White, fontSize = 48.sp, fontWeight = FontWeight.Bold) }
+        ) {
+            Box(
+                modifier = Modifier.weight(1f).fillMaxHeight()
+                    .background(if (visualRegions.contains(REGION_BUTTON_B)) Color(0xFF4CAF50) else Color(0xFF757575))
+                    .border(1.dp, Color.White),
+                contentAlignment = Alignment.Center
+            ) { Text("B", color = Color.White, fontSize = 48.sp, fontWeight = FontWeight.Bold) }
+
+            Box(
+                modifier = Modifier.weight(1f).fillMaxHeight()
+                    .background(if (visualRegions.contains(REGION_BUTTON_MENU)) Color(0xFF4CAF50) else Color(0xFF757575))
+                    .border(1.dp, Color.White),
+                contentAlignment = Alignment.Center
+            ) { Text("MENU", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold) }
+        }
 
         // 3. 下部：X 和 A 键区域
         Row(
