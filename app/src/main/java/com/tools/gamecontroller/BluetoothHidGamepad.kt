@@ -14,8 +14,12 @@ class BluetoothHidGamepad(
         const val BUTTON_B = 0x0002
         const val BUTTON_X = 0x0008
         const val BUTTON_Y = 0x0010
-        const val BUTTON_LB = 0x0020
-        const val BUTTON_RB = 0x0040
+        const val BUTTON_LB = 0x0040
+        const val BUTTON_RB = 0x0080
+        const val BUTTON_LT = 0x0100
+        const val BUTTON_RT = 0x0200
+        const val BUTTON_BACK = 0x0400
+        const val BUTTON_START = 0x0800
         const val HAT_UP = 0
         const val HAT_RIGHT = 2
         const val HAT_DOWN = 4
