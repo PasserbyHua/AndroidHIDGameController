@@ -248,6 +248,23 @@ fun GamepadTestScreen(
         ) {
             Text("连接已配对设备")
         }
+        // 断开连接按钮
+        Button(
+            onClick = {
+                if (!manager.isConnected()) {
+                    Toast.makeText(context, "当前没有已连接的设备", Toast.LENGTH_SHORT).show()
+                    return@Button
+                }
+                val success = manager.disconnect()
+                if (success) {
+                    Toast.makeText(context, "已断开连接", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "断开失败，请查看日志", Toast.LENGTH_SHORT).show()
+                }
+            }
+        ) {
+            Text("断开已连接设备")
+        }
 
         Text("状态: $statusText", style = MaterialTheme.typography.bodyLarge)
 

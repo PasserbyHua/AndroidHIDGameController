@@ -141,12 +141,31 @@ class BluetoothHidManager(val context: Context) {
         Log.d(TAG, "connect: 连接结果 = $result")
     }
 
-    fun disconnect() {
-        connectedDevice?.let {
-            if (ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
-                hidDevice?.disconnect(it)
+    fun disconnect(): Boolean {
+        val device = connectedDevice ?: run {
+            Log.d(TAG, "disconnect: 当前没有已连接的设备")
+            return false
+        }
+        // 权限检查：与 connect() 保持一致，Android 11 及以下无 BLUETOOTH_CONNECT 运行时权限
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                Log.e(TAG, "disconnect: BLUETOOTH_CONNECT 权限未授予")
+                return false
             }
         }
+        val hid = hidDevice
+        if (hid == null) {
+            Log.e(TAG, "disconnect: hidDevice 为 null，尚未初始化")
+            return false
+        }
+        val result = hid.disconnect(device)
+        Log.d(TAG, "disconnect: 断开结果 = $result")
+        if (result) {
+            // 立即清理内部状态，UI 轮询会随之更新
+            connectedDevice = null
+            gamepad = null
+        }
+        return result
     }
 
     fun isConnected(): Boolean = connectedDevice != null && gamepad != null
