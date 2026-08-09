@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import java.text.DecimalFormat
+import kotlin.math.abs
 
 
 @Composable
@@ -88,12 +89,19 @@ fun GravityPadScreen(
 
     // 计算当前摇杆 X 值（映射到 ±5.0）
     val stickXValue by remember {
-        derivedStateOf {
+    derivedStateOf {
             if (!gravityEnabled) 0
             else {
                 val rawY = gravityValues[1]
-                val clamped = rawY.coerceIn(-5.0f, 5.0f)
-                (clamped / 5.0f * 127).toInt()
+                if (abs(rawY) < 0.1f) {
+                    0
+                } else {
+                    val sign = if (rawY > 0) 1 else -1
+                    val absRaw = abs(rawY).coerceIn(0.1f, 5.0f)
+                    // 将 [0.1, 5.0] 映射到 [1, 127]
+                    val mapped = ((absRaw - 0.1f) / 4.9f) * 126 + 1
+                    (mapped * sign).toInt()
+                }
             }
         }
     }
