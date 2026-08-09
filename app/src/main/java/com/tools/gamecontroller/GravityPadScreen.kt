@@ -43,6 +43,8 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import java.text.DecimalFormat
 import kotlin.math.abs
+import kotlin.math.asin
+import kotlin.math.PI
 
 
 @Composable
@@ -89,18 +91,25 @@ fun GravityPadScreen(
 
     // 计算当前摇杆 X 值（映射到 ±5.0）
     val stickXValue by remember {
-    derivedStateOf {
+        derivedStateOf {
             if (!gravityEnabled) 0
             else {
                 val rawY = gravityValues[1]
-                if (abs(rawY) < 0.1f) {
+                val G = 9.8f
+                val normalized = (rawY / G).coerceIn(-1f, 1f)
+                val theta = asin(normalized)
+                val absTheta = abs(theta)
+
+                val deadAngle = (5.0 * PI / 180.0).toFloat()   // 5° 转为 Float
+                val maxAngle = (30.0 * PI / 180.0).toFloat()   // 30° 转为 Float
+
+                if (absTheta < deadAngle) {
                     0
                 } else {
-                    val sign = if (rawY > 0) 1 else -1
-                    val absRaw = abs(rawY).coerceIn(0.1f, 5.0f)
-                    // 将 [0.1, 5.0] 映射到 [1, 127]
-                    val mapped = ((absRaw - 0.1f) / 4.9f) * 126 + 1
-                    (mapped * sign).toInt()
+                    val sign = if (theta > 0) 1 else -1
+                    val clampedTheta = absTheta.coerceAtMost(maxAngle)
+                    val mapped = ((clampedTheta - deadAngle) / (maxAngle - deadAngle) * 127).toInt()
+                    mapped * sign
                 }
             }
         }
