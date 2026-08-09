@@ -83,6 +83,10 @@ import java.text.DecimalFormat
 
 
 class MainActivity : ComponentActivity() {
+    enum class Screen { TEST, SWIPE, GRAVITY }
+
+    // 在类中增加状态变量
+    private var currentScreen by mutableStateOf(Screen.TEST)
 
     private var showSwipePad by mutableStateOf(false)
     // 显式指定类型，避免 by lazy 推断失败
@@ -120,17 +124,21 @@ class MainActivity : ComponentActivity() {
         setContent {
             GameControllerTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    if (showSwipePad) {
-                        SwipePadScreen(
-                            manager = bluetoothManager,
-                            onBack = { showSwipePad = false }
-                        )
-                    } else {
-                        GamepadTestScreen(
+                    when (currentScreen) {
+                        Screen.TEST -> GamepadTestScreen(
                             manager = bluetoothManager,
                             context = this@MainActivity,
                             onRequestPermission = { checkAndRequestPermissions() },
-                            onSwitchToSwipePad = { showSwipePad = true }
+                            onSwitchToSwipePad = { currentScreen = Screen.SWIPE },
+                            onSwitchToGravityPad = { currentScreen = Screen.GRAVITY }  // 新增
+                        )
+                        Screen.SWIPE -> SwipePadScreen(
+                            manager = bluetoothManager,
+                            onBack = { currentScreen = Screen.TEST }
+                        )
+                        Screen.GRAVITY -> GravityPadScreen(
+                            manager = bluetoothManager,
+                            onBack = { currentScreen = Screen.TEST }
                         )
                     }
                 }
@@ -201,7 +209,8 @@ fun GamepadTestScreen(
     manager: BluetoothHidManager,
     context: Context,
     onRequestPermission: () -> Unit,
-    onSwitchToSwipePad: () -> Unit   // 新增
+    onSwitchToSwipePad: () -> Unit,
+    onSwitchToGravityPad: () -> Unit   // 新增
 ) {
     var isConnected by remember { mutableStateOf(manager.isConnected()) }
     var statusText by remember { mutableStateOf(if (isConnected) "已连接" else "未连接") }
@@ -376,6 +385,9 @@ fun GamepadTestScreen(
         Button(onClick = onSwitchToSwipePad) {
             Text("切换到滑动按键界面")
         }
+        // 新增按钮
+        Button(onClick = onSwitchToGravityPad) { Text("切换到重力摇杆界面") }
+
         // 连接按钮
         Button(
             onClick = {
