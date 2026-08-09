@@ -269,6 +269,7 @@ fun GamepadTestScreen(
         }
     }
 
+    /*
     // ---------- 125Hz 轮询发送 ----------
     LaunchedEffect(Unit) {
         while (true) {
@@ -281,6 +282,7 @@ fun GamepadTestScreen(
             delay(8) // 125Hz
         }
     }
+    */
 
     /*
     // ========== 新增：滑块控制摇杆 X 轴 ==========
