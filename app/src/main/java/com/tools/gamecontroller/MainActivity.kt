@@ -248,12 +248,15 @@ fun GamepadTestScreen(
     // ---------- 传感器相关结束 ----------
 
     // ---------- 重力映射摇杆 X 轴 ----------
-    // 根据重力 Y 轴计算摇杆 X 值（范围 -127 ~ 127）
+    // 将 Y 轴重力值在 ±5.0 范围内线性映射到摇杆 X 轴（-127 ~ +127）
+    // 超出 ±5.0 的部分被截断，即 >=5.0 时摇杆值为 +127，<= -5.0 时摇杆值为 -127
     val mappedStickX by remember {
         derivedStateOf {
-            val rawY = gravityValues[1]  // Y 轴重力分量，单位 m/s²
-            // 映射：-9.8 -> -127, +9.8 -> +127，超出限幅
-            (rawY / 9.8f * 127).toInt().coerceIn(-127, 127)
+            val rawY = gravityValues[1]  // Y 轴重力分量
+            // 先限幅到 [-5.0, 5.0]
+            val clampedY = rawY.coerceIn(-5.0f, 5.0f)
+            // 映射到 [-127, 127]
+            (clampedY / 5.0f * 127).toInt()
         }
     }
 
