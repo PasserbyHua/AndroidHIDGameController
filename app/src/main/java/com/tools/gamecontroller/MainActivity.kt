@@ -247,6 +247,30 @@ fun GamepadTestScreen(
     val df = remember { DecimalFormat("0.00") }
     // ---------- 传感器相关结束 ----------
 
+    // ---------- 重力映射摇杆 X 轴 ----------
+    // 根据重力 Y 轴计算摇杆 X 值（范围 -127 ~ 127）
+    val mappedStickX by remember {
+        derivedStateOf {
+            val rawY = gravityValues[1]  // Y 轴重力分量，单位 m/s²
+            // 映射：-9.8 -> -127, +9.8 -> +127，超出限幅
+            (rawY / 9.8f * 127).toInt().coerceIn(-127, 127)
+        }
+    }
+
+    // ---------- 125Hz 轮询发送 ----------
+    LaunchedEffect(Unit) {
+        while (true) {
+            val gamepad = manager.gamepad
+            if (gamepad != null && isConnected) {
+                // 将计算好的 X 轴值设置到摇杆，Y 轴保持 0（后续可扩展）
+                gamepad.setLeftStick(mappedStickX, 0)
+                gamepad.sendReport()
+            }
+            delay(8) // 125Hz
+        }
+    }
+
+    /*
     // ========== 新增：滑块控制摇杆 X 轴 ==========
     var sliderValue by remember { mutableStateOf(0f) }          // 范围 -5.0 ~ 5.0
     val mappedStickX = remember(sliderValue) {
@@ -272,6 +296,7 @@ fun GamepadTestScreen(
             (sliderValue / 5.0f * 127).toInt().coerceIn(-127, 127)
         }
     }
+    */
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -315,6 +340,7 @@ fun GamepadTestScreen(
             Text("重力传感器不可用", color = MaterialTheme.colorScheme.error)
         }
 
+        /*
         // ----- 新增：摇杆 X 轴滑块控件 -----
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -342,6 +368,7 @@ fun GamepadTestScreen(
                 Text("（已自动以 125Hz 持续发送）", style = MaterialTheme.typography.bodySmall)
             }
         }
+        */
 
         Button(onClick = onSwitchToSwipePad) {
             Text("切换到滑动按键界面")
