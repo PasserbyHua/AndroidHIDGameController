@@ -80,4 +80,10 @@ class BluetoothHidGamepad(
         leftY = 0
         sendReport()
     }
+
+    // 在 BluetoothHidGamepad 类中添加
+    fun setLeftStick(x: Int, y: Int) {
+        leftX = x.coerceIn(-127, 127)
+        leftY = y.coerceIn(-127, 127)
+    }
 }

@@ -37,7 +37,7 @@ object GamepadReportDescriptor {
         0x25.toByte(), 0x7F.toByte(),          //   Logical Maximum (127)
         0x75.toByte(), 0x08.toByte(),          //   Report Size (8)
         0x95.toByte(), 0x02.toByte(),          //   Report Count (2)
-        0x81.toByte(), 0x06.toByte(),          //   Input (Data,Var,Rel)
+        0x81.toByte(), 0x02.toByte(),          // Input (Data,Var,Abs)   <-- 改为 0x02
 
         0xC0.toByte()                 // End Collection
     )

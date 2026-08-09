@@ -73,6 +73,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.input.pointer.PointerId
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
@@ -246,6 +247,32 @@ fun GamepadTestScreen(
     val df = remember { DecimalFormat("0.00") }
     // ---------- 传感器相关结束 ----------
 
+    // ========== 新增：滑块控制摇杆 X 轴 ==========
+    var sliderValue by remember { mutableStateOf(0f) }          // 范围 -5.0 ~ 5.0
+    val mappedStickX = remember(sliderValue) {
+        (sliderValue / 5.0f * 127).toInt().coerceIn(-127, 127)
+    }
+
+    // ========== 轮询循环：125Hz 持续发送摇杆值 ==========
+    LaunchedEffect(Unit) {
+        while (true) {
+            val gamepad = manager.gamepad
+            if (gamepad != null && isConnected) {
+                val stickX = (sliderValue / 5.0f * 127).toInt().coerceIn(-127, 127)
+                gamepad.setLeftStick(stickX, 0)
+                gamepad.sendReport()
+            }
+            delay(8) // 125Hz
+        }
+    }
+
+    // UI 中显示映射值的地方，可以使用 derivedStateOf 或直接计算：
+    val displayStickX by remember {
+        derivedStateOf {
+            (sliderValue / 5.0f * 127).toInt().coerceIn(-127, 127)
+        }
+    }
+
     LaunchedEffect(Unit) {
         while (true) {
             isConnected = manager.isConnected()
@@ -286,6 +313,34 @@ fun GamepadTestScreen(
             }
         } else {
             Text("重力传感器不可用", color = MaterialTheme.colorScheme.error)
+        }
+
+        // ----- 新增：摇杆 X 轴滑块控件 -----
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("左摇杆 X 轴 (滑块控制)", style = MaterialTheme.typography.bodyLarge)
+                Slider(
+                    value = sliderValue,
+                    onValueChange = { sliderValue = it },
+                    valueRange = -5.0f..5.0f,
+                    steps = 100, // 每步0.1
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.padding(top = 4.dp)
+                ) {
+                    Text("滑块值: ${df.format(sliderValue)}")
+                    Text("映射摇杆X: $displayStickX")
+                }
+                Text("（已自动以 125Hz 持续发送）", style = MaterialTheme.typography.bodySmall)
+            }
         }
 
         Button(onClick = onSwitchToSwipePad) {
