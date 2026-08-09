@@ -7,6 +7,10 @@ import android.bluetooth.BluetoothDevice
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -66,11 +70,15 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.input.pointer.PointerId
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableStateMapOf
+import java.text.DecimalFormat
 
 
 class MainActivity : ComponentActivity() {
@@ -197,6 +205,47 @@ fun GamepadTestScreen(
     var isConnected by remember { mutableStateOf(manager.isConnected()) }
     var statusText by remember { mutableStateOf(if (isConnected) "已连接" else "未连接") }
 
+    // ---------- 重力传感器相关 ----------
+    // 获取 SensorManager
+    val sensorManager = remember { context.getSystemService(Context.SENSOR_SERVICE) as SensorManager }
+    // 获取重力传感器（TYPE_GRAVITY 更稳定，若不可用可回退到 TYPE_ACCELEROMETER）
+    val gravitySensor = remember { sensorManager.getDefaultSensor(Sensor.TYPE_GRAVITY)
+            ?: sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) }
+    // 存储重力值（x, y, z）
+    var gravityValues by remember { mutableStateOf(floatArrayOf(0f, 0f, 0f)) }
+    // 标记传感器是否可用
+    var isSensorAvailable by remember { mutableStateOf(gravitySensor != null) }
+
+    // 注册传感器监听器（生命周期感知）
+    DisposableEffect(Unit) {
+        val listener = object : SensorEventListener {
+            override fun onSensorChanged(event: SensorEvent?) {
+                event?.let {
+                    // 克隆数据避免被后续修改
+                    gravityValues = it.values.clone()
+                }
+            }
+
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+                // 不需要处理
+            }
+        }
+
+        if (gravitySensor != null) {
+            // 使用 GAME 延迟（≈50ms），适合游戏手柄
+            sensorManager.registerListener(listener, gravitySensor, SensorManager.SENSOR_DELAY_GAME)
+        }
+
+        onDispose {
+            // 注销监听，防止内存泄漏
+            sensorManager.unregisterListener(listener)
+        }
+    }
+
+    // 格式化显示小数
+    val df = remember { DecimalFormat("0.00") }
+    // ---------- 传感器相关结束 ----------
+
     LaunchedEffect(Unit) {
         while (true) {
             isConnected = manager.isConnected()
@@ -213,6 +262,32 @@ fun GamepadTestScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("蓝牙手柄模拟器", style = MaterialTheme.typography.titleLarge)
+
+        // ----- 新增：显示重力传感器数据 -----
+        if (isSensorAvailable) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(
+                    modifier = Modifier.padding(8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text("重力传感器 (m/s²)", style = MaterialTheme.typography.labelMedium)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    ) {
+                        Text("X: ${df.format(gravityValues[0])}")
+                        Text("Y: ${df.format(gravityValues[1])}")
+                        Text("Z: ${df.format(gravityValues[2])}")
+                    }
+                }
+            }
+        } else {
+            Text("重力传感器不可用", color = MaterialTheme.colorScheme.error)
+        }
+
         Button(onClick = onSwitchToSwipePad) {
             Text("切换到滑动按键界面")
         }
