@@ -16,6 +16,7 @@
     <uses-permission
         android:name="android.permission.BLUETOOTH_CONNECT"
         tools:targetApi="s" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <!-- 4. 位置权限：Android 11及以下版本进行蓝牙扫描所必需 -->
     <!-- android:maxSdkVersion="30" 表示此权限仅对API 30及以下版本有效 -->

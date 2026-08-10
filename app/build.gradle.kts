@@ -13,8 +13,8 @@ android {
         applicationId = "com.tools.gamecontroller"
         minSdk = 30
         targetSdk = 37
-        versionCode = 26
-        versionName = "1.25"
+        versionCode = 34
+        versionName = "1.33"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
