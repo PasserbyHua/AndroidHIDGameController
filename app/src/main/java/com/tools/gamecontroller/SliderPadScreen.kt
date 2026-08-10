@@ -28,6 +28,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+/*
+import android.os.VibrationEffect
+import android.os.Vibrator
+import androidx.compose.ui.platform.LocalContext
+*/
 import kotlinx.coroutines.delay
 
 @Composable
@@ -35,6 +40,11 @@ fun SliderPadScreen(
     manager: BluetoothHidManager,
     onBack: () -> Unit
 ) {
+    /*
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val vibrator = context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+    */
+
     val gamepad = manager.gamepad
     val TAG = "SliderPad"
 
@@ -47,6 +57,9 @@ fun SliderPadScreen(
     var sliderValue by remember { mutableStateOf(0) }
     var isSliding by remember { mutableStateOf(false) }
     var visualRegions by remember { mutableStateOf(setOf<Int>()) }
+    /*
+    var wasInDeadZone by remember { mutableStateOf(false) }
+    */
 
     BoxWithConstraints(
         modifier = Modifier
@@ -78,6 +91,14 @@ fun SliderPadScreen(
                                 if (region == REGION_SLIDER) {
                                     hasSliderTouch = true
                                     val fraction = pos.y / (h * 0.4f) // 0~1
+                                    /*
+                                    // 判断是否在死区
+                                    val inDeadZone = fraction in 0.45f..0.55f
+                                    if (inDeadZone && !wasInDeadZone) {
+                                        vibrator?.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
+                                    }
+                                    wasInDeadZone = inDeadZone
+                                    */
                                     val value = when {
                                         fraction < 0.25f -> -127
                                         fraction < 0.45f -> {
@@ -104,6 +125,10 @@ fun SliderPadScreen(
                         } else {
                             isSliding = false
                             sliderValue = 0
+                            /*
+                            // 手指抬起时重置死区状态，避免下次进入时误判
+                            wasInDeadZone = false
+                            */
                         }
                     }
                 }
