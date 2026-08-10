@@ -77,14 +77,19 @@ fun SliderPadScreen(
 
                                 if (region == REGION_SLIDER) {
                                     hasSliderTouch = true
-                                    val fraction = pos.y / (h * 0.4f) // 相对于滑块区域的比例（0~1），顶部0，底部1
+                                    val fraction = pos.y / (h * 0.4f) // 0~1
                                     val value = when {
-                                        fraction < 0.25f -> -127               // 顶部 0%~10% → -127
-                                        fraction > 0.75f -> 127                // 底部 30%~40% → +127
-                                        else -> {
-                                            // 中间 10%~30% 线性映射 [-127, 127]
-                                            ((fraction - 0.25f) / 0.5f * 254 - 127).toInt()
+                                        fraction < 0.25f -> -127
+                                        fraction < 0.45f -> {
+                                            // 映射 [0.25, 0.45] → [-127, 0]
+                                            ((fraction - 0.25f) / 0.2f * 127 - 127).toInt()
                                         }
+                                        fraction < 0.55f -> 0   // 死区 [0.45, 0.55)
+                                        fraction < 0.75f -> {
+                                            // 映射 [0.55, 0.75] → [0, 127]
+                                            ((fraction - 0.55f) / 0.2f * 127).toInt()
+                                        }
+                                        else -> 127
                                     }
                                     newSliderValue = value.coerceIn(-127, 127)
                                 }
