@@ -83,7 +83,7 @@ import java.text.DecimalFormat
 
 
 class MainActivity : ComponentActivity() {
-    enum class Screen { TEST, SWIPE, GRAVITY }
+    enum class Screen { TEST, SWIPE, GRAVITY, SLIDER }
 
     // 在类中增加状态变量
     private var currentScreen by mutableStateOf(Screen.TEST)
@@ -130,13 +130,18 @@ class MainActivity : ComponentActivity() {
                             context = this@MainActivity,
                             onRequestPermission = { checkAndRequestPermissions() },
                             onSwitchToSwipePad = { currentScreen = Screen.SWIPE },
-                            onSwitchToGravityPad = { currentScreen = Screen.GRAVITY }  // 新增
+                            onSwitchToGravityPad = { currentScreen = Screen.GRAVITY },
+                            onSwitchToSliderPad = { currentScreen = Screen.SLIDER }
                         )
                         Screen.SWIPE -> SwipePadScreen(
                             manager = bluetoothManager,
                             onBack = { currentScreen = Screen.TEST }
                         )
                         Screen.GRAVITY -> GravityPadScreen(
+                            manager = bluetoothManager,
+                            onBack = { currentScreen = Screen.TEST }
+                        )
+                        Screen.SLIDER -> SliderPadScreen(
                             manager = bluetoothManager,
                             onBack = { currentScreen = Screen.TEST }
                         )
@@ -210,7 +215,8 @@ fun GamepadTestScreen(
     context: Context,
     onRequestPermission: () -> Unit,
     onSwitchToSwipePad: () -> Unit,
-    onSwitchToGravityPad: () -> Unit   // 新增
+    onSwitchToGravityPad: () -> Unit,
+    onSwitchToSliderPad: () -> Unit
 ) {
     var isConnected by remember { mutableStateOf(manager.isConnected()) }
     var statusText by remember { mutableStateOf(if (isConnected) "已连接" else "未连接") }
@@ -390,6 +396,8 @@ fun GamepadTestScreen(
         // 新增按钮
         Button(onClick = onSwitchToGravityPad) { Text("切换到重力摇杆界面") }
 
+        Button(onClick = onSwitchToSliderPad) { Text("切换到滑块摇杆界面") }
+
         // 连接按钮
         Button(
             onClick = {
@@ -446,6 +454,7 @@ fun GamepadTestScreen(
 
         var hatValue by remember { mutableStateOf("0") }
 
+        /*
         Text("帽子开关值 (0-15, 8或15可能为复位)", style = MaterialTheme.typography.bodySmall)
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -526,6 +535,7 @@ fun GamepadTestScreen(
         // 显示当前按钮状态（方便对照）
         val currentState = manager.gamepad?.getButtonState() ?: 0
         Text("当前按钮状态: 0x${currentState.toString(16)}", style = MaterialTheme.typography.bodySmall)
+        */
 
         // 重置按钮
         Button(onClick = {
