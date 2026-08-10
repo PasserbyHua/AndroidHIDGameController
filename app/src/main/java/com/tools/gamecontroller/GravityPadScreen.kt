@@ -94,18 +94,40 @@ fun GravityPadScreen(
         derivedStateOf {
             if (!gravityEnabled) 0
             else {
-                val rawY = gravityValues[1]
+                val raw = gravityValues[1]   // 使用 Y 轴（横屏左右倾斜）
                 val G = 9.8f
-                val normalized = (rawY / G).coerceIn(-1f, 1f)
+                val normalized = (raw / G).coerceIn(-1f, 1f)
                 val theta = asin(normalized)
                 val absTheta = abs(theta)
 
-                val deadAngle = (5.0 * PI / 180.0).toFloat()   // 5° 转为 Float
-                val maxAngle = (30.0 * PI / 180.0).toFloat()   // 30° 转为 Float
+                val deadAngle = (1.0 * PI / 180.0).toFloat()
+                val maxAngle = (20.0 * PI / 180.0).toFloat()
 
-                if (absTheta < deadAngle) {
-                    0
-                } else {
+                if (absTheta < deadAngle) 0
+                else {
+                    val sign = if (theta > 0) 1 else -1
+                    val clampedTheta = absTheta.coerceAtMost(maxAngle)
+                    val mapped = ((clampedTheta - deadAngle) / (maxAngle - deadAngle) * 127).toInt()
+                    mapped * sign
+                }
+            }
+        }
+    }
+    val stickYValue by remember {
+        derivedStateOf {
+            if (!gravityEnabled) 0
+            else {
+                val raw = gravityValues[0]   // 使用 X 轴（横屏前后倾斜）
+                val G = 9.8f
+                val normalized = (raw / G).coerceIn(-1f, 1f)
+                val theta = asin(normalized)
+                val absTheta = abs(theta)
+
+                val deadAngle = (1.0 * PI / 180.0).toFloat()
+                val maxAngle = (20.0 * PI / 180.0).toFloat()
+
+                if (absTheta < deadAngle) 0
+                else {
                     val sign = if (theta > 0) 1 else -1
                     val clampedTheta = absTheta.coerceAtMost(maxAngle)
                     val mapped = ((clampedTheta - deadAngle) / (maxAngle - deadAngle) * 127).toInt()
@@ -189,7 +211,7 @@ fun GravityPadScreen(
                 .fillMaxWidth()
                 .height(hatHeight)
         ) {
-            // 上半部分的上半：显示摇杆X值
+            // 上半部分的上半：显示摇杆 X 和 Y 值
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -200,15 +222,15 @@ fun GravityPadScreen(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        "摇杆 X",
+                        "摇杆 X: ${if (gravityEnabled) stickXValue else 0}",
                         color = Color.White,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Medium
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold
                     )
                     Text(
-                        if (gravityEnabled) "$stickXValue" else "0",
+                        "摇杆 Y: ${if (gravityEnabled) stickYValue else 0}",
                         color = Color.White,
-                        fontSize = 32.sp,
+                        fontSize = 24.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -323,8 +345,9 @@ fun GravityPadScreen(
 
                     // 3. 设置摇杆 X（根据重力启用状态）
                     val stickX = if (gravityEnabled) stickXValue else 0
-                    gamepad.setLeftStick(stickX, 0)
-
+                    val stickY = if (gravityEnabled) stickYValue else 0
+                    gamepad.setLeftStick(stickX, stickY)
+                    
                     // 4. 发送报告
                     gamepad.sendReport()
                 }
