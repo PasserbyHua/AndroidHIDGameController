@@ -4,8 +4,10 @@ import android.Manifest
 import android.app.AlertDialog
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -47,6 +49,7 @@ import kotlinx.coroutines.delay
 import android.provider.Settings
 import android.net.Uri
 import android.os.Handler
+import android.os.IBinder
 import android.os.Looper
 import androidx.compose.material3.TextField
 import androidx.compose.foundation.background
@@ -93,6 +96,26 @@ class MainActivity : ComponentActivity() {
     private val bluetoothManager: BluetoothHidManager by lazy { BluetoothHidManager(this) }
     // 在类中添加一个请求权限的状态，避免重复弹窗
     private var isRequestingPermission = false
+    // 服务是否运行的标志
+    private var isServiceRunning = false
+    private var gameControllerService: GameControllerService? = null
+    private var serviceBound = false
+
+    // ServiceConnection 用于绑定服务
+    private val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(className: ComponentName, service: IBinder) {
+            val binder = service as GameControllerService.ServiceBinder
+            gameControllerService = binder.getService()
+            serviceBound = true
+            Log.d("MainActivity", "Service connected")
+        }
+
+        override fun onServiceDisconnected(arg0: ComponentName) {
+            serviceBound = false
+            gameControllerService = null
+            Log.d("MainActivity", "Service disconnected")
+        }
+    }
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -119,6 +142,27 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // 设置蓝牙管理器的连接监听器
+        bluetoothManager.setConnectionListener(object : BluetoothHidManager.ConnectionListener {
+            override fun onConnected() {
+                runOnUiThread {
+                    startGameControllerService()
+                    // 更新通知显示已连接
+                    if (serviceBound) {
+                        gameControllerService?.updateNotification("已连接游戏手柄")
+                    }
+                    Toast.makeText(this@MainActivity, "已连接设备", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            override fun onDisconnected() {
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, "已断开连接", Toast.LENGTH_SHORT).show()
+                    // 注意：不立即停止服务，等待用户主动断开
+                }
+            }
+        })
+
         checkAndRequestPermissions()
 
         setContent {
@@ -128,6 +172,7 @@ class MainActivity : ComponentActivity() {
                         Screen.TEST -> GamepadTestScreen(
                             manager = bluetoothManager,
                             context = this@MainActivity,
+                            activity = this@MainActivity,
                             onRequestPermission = { checkAndRequestPermissions() },
                             onSwitchToSwipePad = { currentScreen = Screen.SWIPE },
                             onSwitchToGravityPad = { currentScreen = Screen.GRAVITY },
@@ -207,12 +252,56 @@ class MainActivity : ComponentActivity() {
         }
         bluetoothManager.init()
     }
+    // 启动前台服务
+    private fun startGameControllerService() {
+        if (!isServiceRunning) {
+            val serviceIntent = Intent(this, GameControllerService::class.java)
+            // 启动并绑定服务
+            startService(serviceIntent)
+            bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE)
+            isServiceRunning = true
+            Log.d("MainActivity", "GameControllerService started and bound")
+        }
+    }
+
+    // 停止前台服务
+    public fun stopGameControllerService() {
+        if (isServiceRunning) {
+            val serviceIntent = Intent(this, GameControllerService::class.java)
+            // 解绑并停止服务
+            if (serviceBound) {
+                unbindService(serviceConnection)
+                serviceBound = false
+            }
+            stopService(serviceIntent)
+            isServiceRunning = false
+            gameControllerService = null
+            Log.d("MainActivity", "GameControllerService stopped and unbound")
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // 应用销毁时停止服务
+        stopGameControllerService()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Activity 暂停时不立即停止服务，保持蓝牙连接
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Activity 停止时不立即停止服务，保持蓝牙连接
+    }
 }
 
 @Composable
 fun GamepadTestScreen(
     manager: BluetoothHidManager,
     context: Context,
+    activity: MainActivity,
     onRequestPermission: () -> Unit,
     onSwitchToSwipePad: () -> Unit,
     onSwitchToGravityPad: () -> Unit,
@@ -440,6 +529,8 @@ fun GamepadTestScreen(
                 val success = manager.disconnect()
                 if (success) {
                     Toast.makeText(context, "已断开连接", Toast.LENGTH_SHORT).show()
+                    // 用户主动断开时停止服务
+                    activity.stopGameControllerService()
                 } else {
                     Toast.makeText(context, "断开失败，请查看日志", Toast.LENGTH_SHORT).show()
                 }

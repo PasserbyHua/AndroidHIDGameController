@@ -12,6 +12,17 @@ import com.tools.gamecontroller.GamepadReportDescriptor
 
 class BluetoothHidManager(val context: Context) {
 
+    // 连接状态回调接口
+    interface ConnectionListener {
+        fun onConnected()
+        fun onDisconnected()
+    }
+
+    private var connectionListener: ConnectionListener? = null
+    fun setConnectionListener(listener: ConnectionListener) {
+        connectionListener = listener
+    }
+
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var hidDevice: BluetoothHidDevice? = null
     private var connectedDevice: BluetoothDevice? = null
@@ -57,11 +68,14 @@ class BluetoothHidManager(val context: Context) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     connectedDevice = device
                     gamepad = BluetoothHidGamepad(hidDevice, device)
-                    // 通知 UI 更新（可以通过回调或 LiveData）
+                    // 通知 UI 更新
+                    connectionListener?.onConnected()
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     connectedDevice = null
                     gamepad = null
+                    // 通知 UI 更新
+                    connectionListener?.onDisconnected()
                 }
             }
         }
