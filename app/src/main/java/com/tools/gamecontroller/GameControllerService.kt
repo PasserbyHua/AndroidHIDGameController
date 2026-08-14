@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.bluetooth.BluetoothDevice
 import android.content.Intent
+import android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
@@ -40,7 +41,7 @@ class GameControllerService : Service() {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             // Android 12+ 使用前台服务类型
-            startForeground(notificationId, notification, FOREGROUND_SERVICE_TYPE_GAME_CONTROLLER)
+            startForeground(notificationId, notification, FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         } else {
             // Android 11 使用前台服务（无类型）
             startForeground(notificationId, notification)
