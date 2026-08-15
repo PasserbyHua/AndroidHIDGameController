@@ -9,14 +9,15 @@
 - **蓝牙 HID 手柄模拟**：将手机注册为 Bluetooth HID 设备（子类：Gamepad），其他设备可像识别普通手柄一样识别它
 - **手柄键位**：
   - HID 描述符支持 16 个按键（Button 1–16），`BluetoothHidGamepad` 中定义了 10 个按键位：A、B、X、Y、LB、RB、LT、RT、BACK、START
-  - 操控界面当前使用 X、A、B、MENU（映射为 START）四个按键，其余按键位已定义但未在 UI 暴露
-  - D-Pad 十字方向键（Hat Switch，0–7 八个方向 + Null 空态）
-  - 双轴摇杆（X / Y，范围 -127 ~ +127）
+  - 滑动/重力/滑块界面使用 X、A、B、MENU（映射为 START）四个按键；**完整手柄界面**使用全部已定义的 10 个按键位
+  - D-Pad 十字方向键（Hat Switch，0–7 八个方向 + Null 空态，支持斜方向组合）
+  - 左右双摇杆（左 X/Y；右摇杆同时暴露 Z/Rz 与 Rx/Ry 两套轴映射，范围 -127 ~ +127）
 - **多种操控界面**：
   - **测试界面**：查看连接状态、实时重力传感器数据，连接/断开已配对设备、重置按键
   - **滑动按键界面**：通过手指滑动区域触发 Hat 左/右、B、MENU、X、A 按键
   - **重力摇杆界面**：按住“按下启用”区域后，利用手机重力传感器控制摇杆 XY 轴（带死区与角度映射），支持触摸区域按键
   - **滑块摇杆界面**：屏幕滑动控制左摇杆 X 轴（带死区），支持触摸区域按键
+  - **完整手柄界面**：ABXY + D-Pad 上下左右 + LB/LT/RB/RT + START/BACK + 左右双摇杆；按键位置可拖拽自定义并持久保存；支持滑动触发按下、滑出抬起、多指同时操作
 - **125Hz 高频轮询上报**：每个操控界面有独立的轮询循环（`delay(8)`），确保手柄操作响应流畅
 - **前台服务**：连接成功后自动启动 `GameControllerService`，显示常驻通知，Activity 退到后台仍保持蓝牙连接
 - **多设备连接**：支持从已配对蓝牙设备列表中选择目标设备连接、断开
@@ -57,7 +58,7 @@
 4. 连接成功后自动启动前台服务 `GameControllerService`，显示常驻通知，保证后台持续运行
 5. 各操作界面将触摸/传感器输入写入 `BluetoothHidGamepad` 的状态寄存器，由各自 125Hz 轮询循环调用 `sendReport()` 持续上报
 
-HID 输入报告（Report ID 1）共 5 字节：按键状态 2 字节 + Hat Switch 1 字节 + 左摇杆 X/Y 各 1 字节。
+HID 输入报告（Report ID 1）共 9 字节：按键状态 2 字节 + Hat Switch 1 字节 + 左摇杆 X/Y 各 1 字节 + 右摇杆 Z/Rz 各 1 字节 + 右摇杆 Rx/Ry 各 1 字节（后两对为同一右摇杆的兼容映射）。
 
 ## 技术栈
 
@@ -113,6 +114,7 @@ HID 输入报告（Report ID 1）共 5 字节：按键状态 2 字节 + Hat Swit
 - **滑动按键界面**：手指在对应色块区域滑动即触发按键（Hat Left/Right、B、MENU、X、A）
 - **重力摇杆界面**：先按下顶部 **“按下启用”** 区域开启重力控制，倾斜手机即可控制摇杆 XY 轴；中部/下部区域为 B、MENU、X、A 按键
 - **滑块摇杆界面**：在上方滑块区域上下滑动控制左摇杆 X 轴（中部为死区），下方为按键区
+- **完整手柄界面**：包含 ABXY、D-Pad 上下左右、LB/LT/RB/RT、START/BACK 与左右双摇杆。手指滑入按键即按下、滑出/抬起即释放，摇杆抓住后可拖出外圈持续控制直到抬起。点击 **“编辑布局”** 进入编辑模式后可拖拽任意按键/摇杆调整位置（自动保存，可“恢复默认”）
 - **测试界面**：查看实时重力传感器数值、连接状态，可进行连接/断开与重置操作
 
 ## 项目结构
@@ -127,8 +129,9 @@ GameController/
 │       │   │                              #  + SwipePadScreen（滑动按键界面）
 │       │   ├── BluetoothHidManager.kt     # HID 设备代理获取、SDP 注册、连接/断开管理
 │       │   ├── BluetoothHidGamepad.kt     # 手柄状态寄存器与 HID 报告发送
-│       │   ├── GamepadReportDescriptor.kt # HID Report Descriptor（16按键+Hat+双轴摇杆）
+│       │   ├── GamepadReportDescriptor.kt # HID Report Descriptor（16按键+Hat+双摇杆四轴）
 │       │   ├── GameControllerService.kt   # 前台服务：常驻通知，保持后台连接
+│       │   ├── FullPadScreen.kt           # 完整手柄界面（可自定义布局）
 │       │   ├── GravityPadScreen.kt        # 重力摇杆界面
 │       │   ├── SliderPadScreen.kt         # 滑块摇杆界面
 │       │   └── ui/theme/                  # Compose 主题
@@ -160,7 +163,7 @@ GameController/
 - `HAT_CENTER`（值 8）用于 D-Pad 复位，部分游戏的 Hat 输入逻辑对复位值敏感，属预期行为
 - 当前版本未实现摇杆归中平滑过渡，快速释放触控时摇杆会立即回到 0 位
 - Android 13+ 的通知权限 `POST_NOTIFICATIONS` 已在清单声明但尚未在运行时请求，常驻通知可能不显示（不影响前台服务运行与蓝牙连接）
-- 操控界面仅使用 X、A、B、MENU（START）四个按键位，Y、LB、RB、LT、RT、BACK 等其余按键位已在 `BluetoothHidGamepad` 中定义但未在 UI 暴露
+- 完整手柄界面的自定义布局保存在本地 `SharedPreferences`（归一化坐标，自动适配屏幕尺寸）；HID 描述符已升级为双摇杆（右摇杆同时映射 Z/Rz 与 Rx/Ry），描述符版本变化后应用会自动断开并重连一次；若目标设备仍缓存旧版描述符，请删除配对后重新配对
 
 ## License
 

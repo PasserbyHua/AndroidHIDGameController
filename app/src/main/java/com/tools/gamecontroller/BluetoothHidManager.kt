@@ -5,10 +5,11 @@ import android.bluetooth.*
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.tools.gamecontroller.GamepadReportDescriptor
 
 class BluetoothHidManager(val context: Context) {
 
@@ -29,6 +30,20 @@ class BluetoothHidManager(val context: Context) {
     var gamepad: BluetoothHidGamepad? = null
         private set
 
+    // HID App 是否已完成注册（registerApp 成功后由系统回调更新）
+    private var appRegistered = false
+    // 是否正在执行“先 unregisterApp 再 registerApp”的旧 SDP 刷新流程
+    private var reRegisterRequested = false
+    // HID 服务/注册尚未就绪时的连接请求，就绪后自动执行
+    private var pendingConnectAddress: String? = null
+    // 描述符版本变化后的一次性“断开-重连”刷新流程
+    private var descriptorRefreshPending = false
+    private var descriptorRefreshDevice: BluetoothDevice? = null
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val statePrefs =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
     init {
         val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
         bluetoothAdapter = bluetoothManager?.adapter
@@ -41,6 +56,7 @@ class BluetoothHidManager(val context: Context) {
         override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
             if (profile == BluetoothProfile.HID_DEVICE) {
                 hidDevice = proxy as BluetoothHidDevice
+                appRegistered = false
                 Log.d(TAG, "HID Device service connected")
                 registerApp()
             }
@@ -49,6 +65,8 @@ class BluetoothHidManager(val context: Context) {
         override fun onServiceDisconnected(profile: Int) {
             if (profile == BluetoothProfile.HID_DEVICE) {
                 hidDevice = null
+                appRegistered = false
+                reRegisterRequested = false
                 Log.d(TAG, "HID Device service disconnected")
             }
         }
@@ -56,9 +74,24 @@ class BluetoothHidManager(val context: Context) {
 
     private val callback = object : BluetoothHidDevice.Callback() {
         override fun onAppStatusChanged(pluggedDevice: BluetoothDevice?, registered: Boolean) {
-            Log.d(TAG, "App status: registered=$registered, device=${pluggedDevice?.name}")
+            appRegistered = registered
+            Log.d(
+                TAG,
+                "App status: registered=$registered, device=${pluggedDevice?.name}, " +
+                    "descriptorVersion=${GamepadReportDescriptor.DESCRIPTOR_VERSION}"
+            )
             if (registered) {
-                // 应用已注册，可以开始连接
+                // HID App 已用当前描述符完成注册，执行等待中的连接请求
+                pendingConnectAddress?.let { address ->
+                    Log.d(TAG, "HID App 已就绪，执行等待中的连接: $address")
+                    pendingConnectAddress = null
+                    connect(address)
+                }
+            } else if (reRegisterRequested) {
+                // 旧 SDP 记录已注销，用新描述符重新注册
+                reRegisterRequested = false
+                Log.d(TAG, "旧 HID App 已注销，使用新描述符重新注册")
+                registerApp()
             }
         }
 
@@ -68,14 +101,28 @@ class BluetoothHidManager(val context: Context) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     connectedDevice = device
                     gamepad = BluetoothHidGamepad(hidDevice, device)
+                    handleDescriptorRefreshIfNeeded(device)
                     // 通知 UI 更新
                     connectionListener?.onConnected()
                 }
+
                 BluetoothProfile.STATE_DISCONNECTED -> {
+                    val refreshDevice = descriptorRefreshDevice
                     connectedDevice = null
                     gamepad = null
-                    // 通知 UI 更新
-                    connectionListener?.onDisconnected()
+
+                    if (descriptorRefreshPending && refreshDevice != null) {
+                        // 这是为刷新目标设备缓存的旧描述符而主动发起的断开，
+                        // 不通知 UI“已断开”，稍后自动重连。
+                        val targetAddress = refreshDevice.address
+                        Log.d(TAG, "描述符刷新：设备已断开，准备自动重连 $targetAddress")
+                        mainHandler.postDelayed({
+                            connect(targetAddress)
+                        }, RECONNECT_DELAY_MS)
+                    } else {
+                        // 通知 UI 更新
+                        connectionListener?.onDisconnected()
+                    }
                 }
             }
         }
@@ -99,13 +146,24 @@ class BluetoothHidManager(val context: Context) {
             return
         }
 
-        // 获取 HID 代理
-        bluetoothAdapter!!.getProfileProxy(context, profileListener, BluetoothProfile.HID_DEVICE)
+        if (hidDevice == null) {
+            // 获取 HID 代理
+            bluetoothAdapter!!.getProfileProxy(context, profileListener, BluetoothProfile.HID_DEVICE)
+        } else if (!appRegistered) {
+            // 已有代理但尚未注册时，确保使用当前描述符注册，防止旧 SDP 记录残留
+            registerApp()
+        }
     }
 
     private fun registerApp() {
-        if (hidDevice == null) return
-        if (!checkPermissions()) return
+        if (hidDevice == null) {
+            Log.w(TAG, "registerApp: hidDevice 为 null，尚未初始化")
+            return
+        }
+        if (!checkPermissions()) {
+            Log.w(TAG, "registerApp: 权限不足")
+            return
+        }
 
         val sdpSettings = BluetoothHidDeviceAppSdpSettings(
             GamepadReportDescriptor.DEVICE_NAME,
@@ -123,7 +181,24 @@ class BluetoothHidManager(val context: Context) {
             callback
         )
 
-        Log.d(TAG, "Register app result: $result")
+        Log.d(
+            TAG,
+            "Register app result: $result, descriptorVersion=${GamepadReportDescriptor.DESCRIPTOR_VERSION}"
+        )
+
+        if (!result && !reRegisterRequested) {
+            // registerApp 返回 false 通常表示系统里还残留着旧的 HID App 注册，
+            // 此时 SDP 记录可能仍是旧版描述符（例如升级前的 5 字节报告）。
+            // 必须先注销旧注册，等 onAppStatusChanged(registered=false) 后再重新注册。
+            Log.w(TAG, "registerApp 返回 false，尝试先注销旧 HID App 再重新注册")
+            reRegisterRequested = true
+            val unregisterResult = hidDevice!!.unregisterApp()
+            Log.d(TAG, "unregisterApp result: $unregisterResult")
+            if (!unregisterResult) {
+                reRegisterRequested = false
+                Log.e(TAG, "unregisterApp 失败，旧 HID 描述符可能仍然生效")
+            }
+        }
     }
 
     fun connect(deviceAddress: String) {
@@ -142,17 +217,76 @@ class BluetoothHidManager(val context: Context) {
                 return
             }
         }
+
         val device = bluetoothAdapter?.getRemoteDevice(deviceAddress)
         if (device == null) {
             Log.e(TAG, "connect: 无法获取远程设备")
             return
         }
+
+
         if (hidDevice == null) {
-            Log.e(TAG, "connect: hidDevice 为 null，尚未初始化")
+            Log.w(TAG, "connect: HID 服务尚未就绪，已加入等待队列")
+            pendingConnectAddress = deviceAddress
+            init()
             return
         }
+
+        if (!appRegistered) {
+            Log.w(TAG, "connect: HID App 尚未注册，已加入等待队列")
+            pendingConnectAddress = deviceAddress
+            registerApp()
+            return
+        }
+
+        pendingConnectAddress = null
         val result = hidDevice!!.connect(device)
         Log.d(TAG, "connect: 连接结果 = $result")
+    }
+
+    /**
+     * 如果目标设备缓存了旧版 HID 报告描述符（例如升级前是 5 字节报告），
+     * 即使手机侧已经按 9 字节发送，右摇杆对应的字节也会被目标设备丢弃。
+     *
+     * 这里在连接建立后检测“上次成功连接时使用的描述符版本”，
+     * 版本不一致时自动执行一次“断开 -> 重连”，强制目标设备重新读取 SDP 中的描述符。
+     */
+    private fun handleDescriptorRefreshIfNeeded(device: BluetoothDevice) {
+        if (descriptorRefreshPending && descriptorRefreshDevice?.address == device.address) {
+            // 自动刷新后的重连成功，记录当前版本，避免重复刷新
+            descriptorRefreshPending = false
+            descriptorRefreshDevice = null
+            statePrefs.edit()
+                .putInt(KEY_CONNECTED_DESCRIPTOR_VERSION, GamepadReportDescriptor.DESCRIPTOR_VERSION)
+                .apply()
+            Log.d(TAG, "描述符刷新完成，右摇杆报告应已生效")
+            return
+        }
+
+        val lastConnectedVersion = statePrefs.getInt(KEY_CONNECTED_DESCRIPTOR_VERSION, -1)
+        if (lastConnectedVersion == GamepadReportDescriptor.DESCRIPTOR_VERSION) {
+            return
+        }
+
+        val hid = hidDevice
+        if (hid == null || !checkPermissions()) {
+            Log.w(TAG, "需要刷新描述符，但 HID 服务/权限不可用")
+            return
+        }
+
+        Log.w(
+            TAG,
+            "检测到 HID 描述符版本变化($lastConnectedVersion -> " +
+                "${GamepadReportDescriptor.DESCRIPTOR_VERSION})，自动断开并重连一次"
+        )
+        descriptorRefreshPending = true
+        descriptorRefreshDevice = device
+        val result = hid.disconnect(device)
+        Log.d(TAG, "描述符刷新断开结果: $result")
+        if (!result) {
+            descriptorRefreshPending = false
+            descriptorRefreshDevice = null
+        }
     }
 
     fun disconnect(): Boolean {
@@ -178,6 +312,7 @@ class BluetoothHidManager(val context: Context) {
             // 立即清理内部状态，UI 轮询会随之更新
             connectedDevice = null
             gamepad = null
+            pendingConnectAddress = null
         }
         return result
     }
@@ -229,5 +364,8 @@ class BluetoothHidManager(val context: Context) {
 
     companion object {
         private const val TAG = "BluetoothHidManager"
+        private const val PREFS_NAME = "hid_manager_state"
+        private const val KEY_CONNECTED_DESCRIPTOR_VERSION = "connected_descriptor_version"
+        private const val RECONNECT_DELAY_MS = 800L
     }
 }

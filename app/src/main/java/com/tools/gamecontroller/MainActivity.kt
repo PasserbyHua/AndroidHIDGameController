@@ -86,7 +86,7 @@ import java.text.DecimalFormat
 
 
 class MainActivity : ComponentActivity() {
-    enum class Screen { TEST, SWIPE, GRAVITY, SLIDER }
+    enum class Screen { TEST, SWIPE, GRAVITY, SLIDER, FULL }
 
     // 在类中增加状态变量
     private var currentScreen by mutableStateOf(Screen.TEST)
@@ -176,7 +176,8 @@ class MainActivity : ComponentActivity() {
                             onRequestPermission = { checkAndRequestPermissions() },
                             onSwitchToSwipePad = { currentScreen = Screen.SWIPE },
                             onSwitchToGravityPad = { currentScreen = Screen.GRAVITY },
-                            onSwitchToSliderPad = { currentScreen = Screen.SLIDER }
+                            onSwitchToSliderPad = { currentScreen = Screen.SLIDER },
+                            onSwitchToFullPad = { currentScreen = Screen.FULL }
                         )
                         Screen.SWIPE -> SwipePadScreen(
                             manager = bluetoothManager,
@@ -187,6 +188,10 @@ class MainActivity : ComponentActivity() {
                             onBack = { currentScreen = Screen.TEST }
                         )
                         Screen.SLIDER -> SliderPadScreen(
+                            manager = bluetoothManager,
+                            onBack = { currentScreen = Screen.TEST }
+                        )
+                        Screen.FULL -> FullPadScreen(
                             manager = bluetoothManager,
                             onBack = { currentScreen = Screen.TEST }
                         )
@@ -305,7 +310,8 @@ fun GamepadTestScreen(
     onRequestPermission: () -> Unit,
     onSwitchToSwipePad: () -> Unit,
     onSwitchToGravityPad: () -> Unit,
-    onSwitchToSliderPad: () -> Unit
+    onSwitchToSliderPad: () -> Unit,
+    onSwitchToFullPad: () -> Unit
 ) {
     var isConnected by remember { mutableStateOf(manager.isConnected()) }
     var statusText by remember { mutableStateOf(if (isConnected) "已连接" else "未连接") }
@@ -486,6 +492,8 @@ fun GamepadTestScreen(
         Button(onClick = onSwitchToGravityPad) { Text("切换到重力摇杆界面") }
 
         Button(onClick = onSwitchToSliderPad) { Text("切换到滑块摇杆界面") }
+
+        Button(onClick = onSwitchToFullPad) { Text("切换到完整手柄界面") }
 
         // 连接按钮
         Button(

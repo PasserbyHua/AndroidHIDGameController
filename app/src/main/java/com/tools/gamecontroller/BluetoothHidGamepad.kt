@@ -21,9 +21,13 @@ class BluetoothHidGamepad(
         const val BUTTON_BACK = 0x0400
         const val BUTTON_START = 0x0800
         const val HAT_UP = 0
+        const val HAT_UP_RIGHT = 1
         const val HAT_RIGHT = 2
+        const val HAT_DOWN_RIGHT = 3
         const val HAT_DOWN = 4
+        const val HAT_DOWN_LEFT = 5
         const val HAT_LEFT = 6
+        const val HAT_UP_LEFT = 7
         const val HAT_CENTER = 0x08
     }
 
@@ -32,7 +36,9 @@ class BluetoothHidGamepad(
     private var hatSwitch = HAT_CENTER
     private var leftX = 0
     private var leftY = 0
-    private val reportBuffer = ByteArray(5)
+    private var rightX = 0
+    private var rightY = 0
+    private val reportBuffer = ByteArray(GamepadReportDescriptor.REPORT_LENGTH)
 
     fun getButtonState(): Int = buttonState
 
@@ -51,6 +57,12 @@ class BluetoothHidGamepad(
         reportBuffer[2] = hatSwitch.toByte()
         reportBuffer[3] = leftX.toByte()
         reportBuffer[4] = leftY.toByte()
+        // 右摇杆主映射：Z / Rz（字节 5、6）
+        reportBuffer[5] = rightX.toByte()
+        reportBuffer[6] = rightY.toByte()
+        // 右摇杆别名映射：Rx / Ry（字节 7、8），兼容不同被控端的轴映射约定
+        reportBuffer[7] = rightX.toByte()
+        reportBuffer[8] = rightY.toByte()
         hidDevice.sendReport(remoteDevice, 1, reportBuffer)
     }
 
@@ -78,12 +90,18 @@ class BluetoothHidGamepad(
         hatSwitch = HAT_CENTER
         leftX = 0
         leftY = 0
+        rightX = 0
+        rightY = 0
         sendReport()
     }
 
-    // 在 BluetoothHidGamepad 类中添加
     fun setLeftStick(x: Int, y: Int) {
         leftX = x.coerceIn(-127, 127)
         leftY = y.coerceIn(-127, 127)
+    }
+
+    fun setRightStick(x: Int, y: Int) {
+        rightX = x.coerceIn(-127, 127)
+        rightY = y.coerceIn(-127, 127)
     }
 }
