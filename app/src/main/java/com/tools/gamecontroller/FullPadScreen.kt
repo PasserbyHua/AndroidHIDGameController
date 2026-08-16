@@ -187,6 +187,10 @@ fun FullPadScreen(
     val stickKnobRadiusPx = with(density) { 26.dp.toPx() }
     val toolbarHeightPx = with(density) { 48.dp.toPx() }
 
+    var toolbarVisible by remember { mutableStateOf(true) }
+    val showToolbarButtonWidthPx = with(density) { 140.dp.toPx() }
+    val showToolbarButtonHeightPx = with(density) { 48.dp.toPx() }
+
     var positions = remember { mutableStateMapOf<String, Offset>().apply { putAll(loadPositions(context)) } }
     var editMode by remember { mutableStateOf(false) }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
@@ -282,7 +286,7 @@ fun FullPadScreen(
             .fillMaxSize()
             .background(Color(0xFF212121))
             .onSizeChanged { canvasSize = it }
-            .pointerInput(editMode, canvasSize) {
+            .pointerInput(editMode, canvasSize, toolbarVisible) {
                 if (!editMode) {
                     awaitPointerEventScope {
                         while (true) {
@@ -292,35 +296,48 @@ fun FullPadScreen(
 
                             event.changes.forEach { change ->
                                 if (change.pressed) {
-                                    val prevId = next[change.id]
-                                    // 工具栏区域不触发游戏控件，避免误触
-                                    val inGameArea = change.position.y >= toolbarHeightPx
-                                    val hit = if (inGameArea) {
-                                        resolveHit(change.position, buttonRadiusPx, stickOuterRadiusPx) { centerOf(it) }
-                                    } else null
+                                    // 工具栏隐藏时，屏幕中央的“显示顶部”按钮区域只负责恢复工具栏，
+                                    // 不触发任何游戏控件。
+                                    val inShowToolbarButton = !toolbarVisible &&
+                                        change.position.x >= (size.width.toFloat() - showToolbarButtonWidthPx) / 2f &&
+                                        change.position.x <= (size.width.toFloat() + showToolbarButtonWidthPx) / 2f &&
+                                        change.position.y >= (size.height.toFloat() - showToolbarButtonHeightPx) / 2f &&
+                                        change.position.y <= (size.height.toFloat() + showToolbarButtonHeightPx) / 2f
 
-                                    when {
-                                        // 已经抓住摇杆的指针优先保持为摇杆，直到抬起。
-                                        // 否则手指拖动右摇杆经过 A/B 按键命中圈时会被错误地切换成按键，
-                                        // 表现为“右摇杆突然失效”。
-                                        prevId == "STICK_L" || prevId == "STICK_R" -> {
-                                            val stickId = prevId!!
-                                            next[change.id] = stickId
-                                            val delta = change.position - centerOf(stickId)
-                                            val d = delta.getDistance()
-                                            newOffsets[stickId] =
-                                                if (d > stickOuterRadiusPx) delta / d * stickOuterRadiusPx else delta
-                                        }
-                                        hit != null -> {
-                                            next[change.id] = hit
-                                            if (hit == "STICK_L" || hit == "STICK_R") {
-                                                val delta = change.position - centerOf(hit)
+                                    if (inShowToolbarButton) {
+                                        toolbarVisible = true
+                                        next.remove(change.id)
+                                    } else {
+                                        val prevId = next[change.id]
+                                        // 工具栏可见时排除顶部工具栏区域；隐藏后整屏都可操作
+                                        val inGameArea = !toolbarVisible || change.position.y >= toolbarHeightPx
+                                        val hit = if (inGameArea) {
+                                            resolveHit(change.position, buttonRadiusPx, stickOuterRadiusPx) { centerOf(it) }
+                                        } else null
+
+                                        when {
+                                            // 已经抓住摇杆的指针优先保持为摇杆，直到抬起。
+                                            // 否则手指拖动右摇杆经过 A/B 按键命中圈时会被错误地切换成按键，
+                                            // 表现为“右摇杆突然失效”。
+                                            prevId == "STICK_L" || prevId == "STICK_R" -> {
+                                                val stickId = prevId!!
+                                                next[change.id] = stickId
+                                                val delta = change.position - centerOf(stickId)
                                                 val d = delta.getDistance()
-                                                newOffsets[hit] =
+                                                newOffsets[stickId] =
                                                     if (d > stickOuterRadiusPx) delta / d * stickOuterRadiusPx else delta
                                             }
+                                            hit != null -> {
+                                                next[change.id] = hit
+                                                if (hit == "STICK_L" || hit == "STICK_R") {
+                                                    val delta = change.position - centerOf(hit)
+                                                    val d = delta.getDistance()
+                                                    newOffsets[hit] =
+                                                        if (d > stickOuterRadiusPx) delta / d * stickOuterRadiusPx else delta
+                                                }
+                                            }
+                                            else -> next.remove(change.id)
                                         }
-                                        else -> next.remove(change.id)
                                     }
                                 } else {
                                     next.remove(change.id)
@@ -374,38 +391,54 @@ fun FullPadScreen(
             )
         }
 
-        // ---------- 顶部工具栏（后声明，绘制在最上层） ----------
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .background(Color(0x99000000))
-                .padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Button(onClick = onBack) { Text("返回", fontSize = 14.sp) }
-            Spacer(Modifier.weight(1f))
-            Text(
-                if (isConnected) "已连接" else "未连接",
-                color = if (isConnected) Color(0xFF4CAF50) else Color(0xFFBDBDBD),
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(Modifier.weight(1f))
-            if (editMode) {
-                Button(onClick = {
-                    positions.clear()
-                    positions.putAll(defaultPositions())
-                    savePositions(context, positions.toMap())
-                }) { Text("恢复默认", fontSize = 14.sp) }
-            }
-            Button(onClick = {
-                editMode = !editMode
+        // ---------- 顶部工具栏（后声明，绘制在最上层；可通过“隐藏”按钮收起） ----------
+        if (toolbarVisible) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .background(Color(0x99000000))
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(onClick = onBack) { Text("返回", fontSize = 14.sp) }
+                Spacer(Modifier.size(8.dp))
+                Button(onClick = { toolbarVisible = false }) { Text("隐藏", fontSize = 14.sp) }
+                Spacer(Modifier.weight(1f))
+                Text(
+                    if (isConnected) "已连接" else "未连接",
+                    color = if (isConnected) Color(0xFF4CAF50) else Color(0xFFBDBDBD),
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.weight(1f))
                 if (editMode) {
-                    // 进入编辑模式时释放全部按键
-                    activeControls = emptyMap()
-                    stickOffsets = emptyMap()
+                    Button(onClick = {
+                        positions.clear()
+                        positions.putAll(defaultPositions())
+                        savePositions(context, positions.toMap())
+                    }) { Text("恢复默认", fontSize = 14.sp) }
                 }
-            }) { Text(if (editMode) "完成编辑" else "编辑布局", fontSize = 14.sp) }
+                Button(onClick = {
+                    editMode = !editMode
+                    if (editMode) {
+                        // 进入编辑模式时释放全部按键
+                        activeControls = emptyMap()
+                        stickOffsets = emptyMap()
+                    }
+                }) { Text(if (editMode) "完成编辑" else "编辑布局", fontSize = 14.sp) }
+            }
+        }
+
+        // ---------- 工具栏隐藏时，屏幕中央显示“显示顶部” ----------
+        if (!toolbarVisible) {
+            Button(
+                onClick = { toolbarVisible = true },
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(width = 140.dp, height = 48.dp)
+            ) {
+                Text("显示顶部", fontSize = 16.sp)
+            }
         }
 
         // ---------- 编辑模式提示 ----------
