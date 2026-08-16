@@ -9,6 +9,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.content.res.Configuration
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -143,6 +147,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        applyFullscreenForOrientation()
 
         // 设置蓝牙管理器的连接监听器
         bluetoothManager.setConnectionListener(object : BluetoothHidManager.ConnectionListener {
@@ -289,13 +295,47 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // 应用销毁时停止服务
-        stopGameControllerService()
+        // 配置变化导致 Activity 销毁时不停止前台服务，避免旋转屏幕断开蓝牙连接
+        if (!isChangingConfigurations) {
+            stopGameControllerService()
+        }
     }
 
     override fun onPause() {
         super.onPause()
         // Activity 暂停时不立即停止服务，保持蓝牙连接
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyFullscreenForOrientation()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            applyFullscreenForOrientation()
+        }
+    }
+
+    /**
+     * 横屏时进入视频式沉浸全屏：隐藏状态栏和底部控制栏，边缘上滑/下滑可临时呼出。
+     * 竖屏时恢复正常系统栏。
+     */
+    private fun applyFullscreenForOrientation() {
+        val isLandscape =
+            resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        WindowCompat.setDecorFitsSystemWindows(window, !isLandscape)
+
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        if (isLandscape) {
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
     }
 
     override fun onStop() {
