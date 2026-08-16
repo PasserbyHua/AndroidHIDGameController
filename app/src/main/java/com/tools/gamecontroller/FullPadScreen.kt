@@ -87,6 +87,7 @@ private val PAD_STICKS = listOf(
 
 private const val PREFS_NAME = "fullpad_layout"
 private const val KEY_POSITIONS = "positions"
+private const val KEY_BUTTON_SCALE = "button_scale"
 private const val TAG = "FullPad"
 
 // ============================== 布局持久化 ==============================
@@ -129,6 +130,19 @@ private fun savePositions(context: Context, map: Map<String, Offset>) {
     }
     context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         .edit().putString(KEY_POSITIONS, obj.toString()).apply()
+}
+
+private fun loadButtonScale(context: Context): Float {
+    return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        .getFloat(KEY_BUTTON_SCALE, 1f)
+        .coerceIn(1f, 2f)
+}
+
+private fun saveButtonScale(context: Context, scale: Float) {
+    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putFloat(KEY_BUTTON_SCALE, scale.coerceIn(1f, 2f))
+        .apply()
 }
 
 // ============================== 命中检测 ==============================
@@ -182,7 +196,10 @@ fun FullPadScreen(
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
-    val buttonRadiusPx = with(density) { 32.dp.toPx() }
+    val baseButtonRadiusPx = with(density) { 32.dp.toPx() }
+    // 按键整体缩放：1.0 为当前代码里的基准大小，最大 2.0（增大 100%），最小 1.0
+    var buttonScale by remember { mutableStateOf(loadButtonScale(context)) }
+    val buttonRadiusPx = baseButtonRadiusPx * buttonScale
     val stickOuterRadiusPx = with(density) { 64.dp.toPx() }
     val stickKnobRadiusPx = with(density) { 26.dp.toPx() }
     val toolbarHeightPx = with(density) { 48.dp.toPx() }
@@ -286,7 +303,7 @@ fun FullPadScreen(
             .fillMaxSize()
             .background(Color(0xFF212121))
             .onSizeChanged { canvasSize = it }
-            .pointerInput(editMode, canvasSize, toolbarVisible) {
+            .pointerInput(editMode, canvasSize, toolbarVisible, buttonScale) {
                 if (!editMode) {
                     awaitPointerEventScope {
                         while (true) {
@@ -418,6 +435,25 @@ fun FullPadScreen(
                         savePositions(context, positions.toMap())
                     }) { Text("恢复默认", fontSize = 14.sp) }
                 }
+                Spacer(Modifier.size(4.dp))
+                Button(
+                    enabled = buttonScale > 1f,
+                    onClick = {
+                        val newScale = (buttonScale - 0.1f).coerceAtLeast(1f)
+                        buttonScale = newScale
+                        saveButtonScale(context, newScale)
+                    }
+                ) { Text("缩小", fontSize = 14.sp) }
+                Spacer(Modifier.size(4.dp))
+                Button(
+                    enabled = buttonScale < 2f,
+                    onClick = {
+                        val newScale = (buttonScale + 0.1f).coerceAtMost(2f)
+                        buttonScale = newScale
+                        saveButtonScale(context, newScale)
+                    }
+                ) { Text("放大", fontSize = 14.sp) }
+                Spacer(Modifier.size(4.dp))
                 Button(onClick = {
                     editMode = !editMode
                     if (editMode) {
