@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -94,6 +95,9 @@ private val PAD_STICKS = listOf(
     PadStickDef("STICK_L", 0.26f, 0.44f),
     PadStickDef("STICK_R", 0.76f, 0.68f),
 )
+
+// 工具栏按钮统一高对比配色：深绿底 + 白字
+private val toolbarButtonColor = Color(0xFF1B5E20)
 
 private const val PREFS_NAME = "fullpad_layout"
 private const val KEY_POSITIONS = "positions"
@@ -214,8 +218,8 @@ fun FullPadScreen(
     val toolbarHeightPx = with(density) { 48.dp.toPx() }
 
     var toolbarVisible by remember { mutableStateOf(true) }
-    val showToolbarButtonWidthPx = with(density) { 140.dp.toPx() }
-    val showToolbarButtonHeightPx = with(density) { 48.dp.toPx() }
+    val showToolbarButtonWidthPx = with(density) { 105.dp.toPx() }
+    val showToolbarButtonHeightPx = with(density) { 36.dp.toPx() }
 
     var positions = remember { mutableStateMapOf<String, Offset>().apply { putAll(loadPositions(context)) } }
     var editMode by remember { mutableStateOf(false) }
@@ -330,13 +334,12 @@ fun FullPadScreen(
 
                             event.changes.forEach { change ->
                                 if (change.pressed) {
-                                    // 工具栏隐藏时，屏幕中央的“显示顶部”按钮区域只负责恢复工具栏，
+                                    // 工具栏隐藏时，顶部中间的“显示顶部”按钮区域只负责恢复工具栏，
                                     // 不触发任何游戏控件。
                                     val inShowToolbarButton = !toolbarVisible &&
                                         change.position.x >= (size.width.toFloat() - showToolbarButtonWidthPx) / 2f &&
                                         change.position.x <= (size.width.toFloat() + showToolbarButtonWidthPx) / 2f &&
-                                        change.position.y >= (size.height.toFloat() - showToolbarButtonHeightPx) / 2f &&
-                                        change.position.y <= (size.height.toFloat() + showToolbarButtonHeightPx) / 2f
+                                        change.position.y <= showToolbarButtonHeightPx
 
                                     if (inShowToolbarButton) {
                                         toolbarVisible = true
@@ -435,26 +438,32 @@ fun FullPadScreen(
                     .padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Button(onClick = {
-                    val devices = manager.getPairedDevices()
-                    if (devices.isEmpty()) {
-                        Toast.makeText(context, "没有已配对的蓝牙设备，请先在系统设置中配对", Toast.LENGTH_LONG).show()
-                    } else {
-                        pairedDevices = devices
-                        showConnectDialog = true
+                Button(
+                    colors = ButtonDefaults.buttonColors(containerColor = toolbarButtonColor),
+                    onClick = {
+                        val devices = manager.getPairedDevices()
+                        if (devices.isEmpty()) {
+                            Toast.makeText(context, "没有已配对的蓝牙设备，请先在系统设置中配对", Toast.LENGTH_LONG).show()
+                        } else {
+                            pairedDevices = devices
+                            showConnectDialog = true
+                        }
                     }
-                }) { Text("连接", fontSize = 14.sp) }
+                ) { Text("连接", fontSize = 14.sp) }
                 Spacer(Modifier.size(8.dp))
-                Button(onClick = {
-                    if (manager.isConnected()) {
-                        manager.disconnect()
-                        Toast.makeText(context, "正在断开连接", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(context, "当前未连接设备", Toast.LENGTH_SHORT).show()
+                Button(
+                    colors = ButtonDefaults.buttonColors(containerColor = toolbarButtonColor),
+                    onClick = {
+                        if (manager.isConnected()) {
+                            manager.disconnect()
+                            Toast.makeText(context, "正在断开连接", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "当前未连接设备", Toast.LENGTH_SHORT).show()
+                        }
                     }
-                }) { Text("断开", fontSize = 14.sp) }
+                ) { Text("断开", fontSize = 14.sp) }
                 Spacer(Modifier.size(8.dp))
-                Button(onClick = { toolbarVisible = false }) { Text("隐藏", fontSize = 14.sp) }
+                Button(colors = ButtonDefaults.buttonColors(containerColor = toolbarButtonColor), onClick = { toolbarVisible = false }) { Text("隐藏", fontSize = 14.sp) }
                 Spacer(Modifier.weight(1f))
                 Text(
                     if (isConnected) "已连接" else "未连接",
@@ -463,14 +472,18 @@ fun FullPadScreen(
                 )
                 Spacer(Modifier.weight(1f))
                 if (editMode) {
-                    Button(onClick = {
-                        positions.clear()
-                        positions.putAll(defaultPositions())
-                        savePositions(context, positions.toMap())
-                    }) { Text("恢复默认", fontSize = 14.sp) }
+                    Button(
+                        colors = ButtonDefaults.buttonColors(containerColor = toolbarButtonColor),
+                        onClick = {
+                            positions.clear()
+                            positions.putAll(defaultPositions())
+                            savePositions(context, positions.toMap())
+                        }
+                    ) { Text("恢复默认", fontSize = 14.sp) }
                 }
                 Spacer(Modifier.size(4.dp))
                 Button(
+                    colors = ButtonDefaults.buttonColors(containerColor = toolbarButtonColor),
                     enabled = buttonScale > 1f,
                     onClick = {
                         val newScale = (buttonScale - 0.1f).coerceAtLeast(1f)
@@ -480,6 +493,7 @@ fun FullPadScreen(
                 ) { Text("缩小", fontSize = 14.sp) }
                 Spacer(Modifier.size(4.dp))
                 Button(
+                    colors = ButtonDefaults.buttonColors(containerColor = toolbarButtonColor),
                     enabled = buttonScale < 2f,
                     onClick = {
                         val newScale = (buttonScale + 0.1f).coerceAtMost(2f)
@@ -488,14 +502,17 @@ fun FullPadScreen(
                     }
                 ) { Text("放大", fontSize = 14.sp) }
                 Spacer(Modifier.size(4.dp))
-                Button(onClick = {
-                    editMode = !editMode
-                    if (editMode) {
-                        // 进入编辑模式时释放全部按键
-                        activeControls = emptyMap()
-                        stickOffsets = emptyMap()
+                Button(
+                    colors = ButtonDefaults.buttonColors(containerColor = toolbarButtonColor),
+                    onClick = {
+                        editMode = !editMode
+                        if (editMode) {
+                            // 进入编辑模式时释放全部按键
+                            activeControls = emptyMap()
+                            stickOffsets = emptyMap()
+                        }
                     }
-                }) { Text(if (editMode) "完成编辑" else "编辑布局", fontSize = 14.sp) }
+                ) { Text(if (editMode) "完成编辑" else "编辑布局", fontSize = 14.sp) }
             }
         }
 
@@ -531,15 +548,17 @@ fun FullPadScreen(
             )
         }
 
-        // ---------- 工具栏隐藏时，屏幕中央显示“显示顶部” ----------
+        // ---------- 工具栏隐藏时，顶部中间显示“显示顶部” ----------
         if (!toolbarVisible) {
             Button(
                 onClick = { toolbarVisible = true },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B5E20)),
                 modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(width = 140.dp, height = 48.dp)
+                    .align(Alignment.TopCenter)
+                    .padding(top = 4.dp)
+                    .size(width = 105.dp, height = 36.dp)
             ) {
-                Text("显示顶部", fontSize = 16.sp)
+                Text("显示顶部", fontSize = 14.sp, color = Color.White)
             }
         }
 

@@ -222,17 +222,12 @@ class MainActivity : ComponentActivity() {
         applyFullscreenForOrientation()
     }
 
-    // 根据屏幕方向应用全屏模式
+    // 全屏模式：任何方向都隐藏系统栏（状态栏 + 导航栏），滑动可临时唤出
     private fun applyFullscreenForOrientation() {
-        if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-            WindowInsetsControllerCompat(window, window.decorView).apply {
-                hide(WindowInsetsCompat.Type.systemBars())
-                systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            }
-        } else {
-            WindowCompat.setDecorFitsSystemWindows(window, true)
-            WindowInsetsControllerCompat(window, window.decorView).show(WindowInsetsCompat.Type.systemBars())
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
     }
 }
