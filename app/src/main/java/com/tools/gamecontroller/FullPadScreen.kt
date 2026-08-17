@@ -72,12 +72,12 @@ private val PAD_BUTTONS = listOf(
     PadButtonDef("DOWN", "↓", 0, BluetoothHidGamepad.HAT_DOWN, 0.22f, 0.90f, Color(0xFF9C27B0)),
     PadButtonDef("LEFT", "←", 0, BluetoothHidGamepad.HAT_LEFT, 0.12f, 0.81f, Color(0xFF9C27B0)),
     PadButtonDef("RIGHT", "→", 0, BluetoothHidGamepad.HAT_RIGHT, 0.32f, 0.81f, Color(0xFF9C27B0)),
-    PadButtonDef("LB", "LB", BluetoothHidGamepad.BUTTON_LB, null, 0.12f, 0.12f, Color(0xFFFF9800)),
-    PadButtonDef("LT", "LT", BluetoothHidGamepad.BUTTON_LT, null, 0.12f, 0.25f, Color(0xFFFF5722)),
-    PadButtonDef("RB", "RB", BluetoothHidGamepad.BUTTON_RB, null, 0.88f, 0.12f, Color(0xFFFF9800)),
-    PadButtonDef("RT", "RT", BluetoothHidGamepad.BUTTON_RT, null, 0.88f, 0.25f, Color(0xFFFF5722)),
-    PadButtonDef("START", "START", BluetoothHidGamepad.BUTTON_START, null, 0.42f, 0.10f, Color(0xFF607D8B)),
-    PadButtonDef("BACK", "BACK", BluetoothHidGamepad.BUTTON_BACK, null, 0.58f, 0.10f, Color(0xFF607D8B)),
+    PadButtonDef("LB", "LB", BluetoothHidGamepad.BUTTON_LB, null, 0.12f, 0.25f, Color(0xFFFF9800)),
+    PadButtonDef("LT", "LT", BluetoothHidGamepad.BUTTON_LT, null, 0.12f, 0.12f, Color(0xFFFF5722)),
+    PadButtonDef("RB", "RB", BluetoothHidGamepad.BUTTON_RB, null, 0.88f, 0.25f, Color(0xFFFF9800)),
+    PadButtonDef("RT", "RT", BluetoothHidGamepad.BUTTON_RT, null, 0.88f, 0.12f, Color(0xFFFF5722)),
+    PadButtonDef("START", "START", BluetoothHidGamepad.BUTTON_START, null, 0.58f, 0.10f, Color(0xFF607D8B)),
+    PadButtonDef("BACK", "BACK", BluetoothHidGamepad.BUTTON_BACK, null, 0.42f, 0.10f, Color(0xFF607D8B)),
 )
 
 private val PAD_STICKS = listOf(
