@@ -20,6 +20,11 @@ class BluetoothHidGamepad(
         const val BUTTON_RT = 0x0200
         const val BUTTON_BACK = 0x0400
         const val BUTTON_START = 0x0800
+        // 左右摇杆按下（L3 / R3）：
+        // 实测 0x2000(Button14) 触发"左摇杆按下"，0x4000(Button15) 触发"右摇杆按下"，
+        // 被控端左右相反，故对调定义
+        const val BUTTON_L3 = 0x2000
+        const val BUTTON_R3 = 0x4000
         const val HAT_UP = 0
         const val HAT_UP_RIGHT = 1
         const val HAT_RIGHT = 2

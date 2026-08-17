@@ -78,6 +78,9 @@ private val PAD_BUTTONS = listOf(
     PadButtonDef("RT", "RT", BluetoothHidGamepad.BUTTON_RT, null, 0.88f, 0.12f, Color(0xFFFF5722)),
     PadButtonDef("START", "START", BluetoothHidGamepad.BUTTON_START, null, 0.58f, 0.10f, Color(0xFF607D8B)),
     PadButtonDef("BACK", "BACK", BluetoothHidGamepad.BUTTON_BACK, null, 0.42f, 0.10f, Color(0xFF607D8B)),
+    // 左右摇杆按下键（L3 / R3）：位于对应摇杆正下方
+    PadButtonDef("L3", "L3", BluetoothHidGamepad.BUTTON_L3, null, 0.26f, 0.66f, Color(0xFF9E9E9E)),
+    PadButtonDef("R3", "R3", BluetoothHidGamepad.BUTTON_R3, null, 0.76f, 0.88f, Color(0xFF9E9E9E)),
 )
 
 private val PAD_STICKS = listOf(
