@@ -272,6 +272,11 @@ fun FullPadScreen(
                 val (rx, ry) = stickValue("STICK_R")
                 gp.setLeftStick(lx, ly)
                 gp.setRightStick(rx, ry)
+                // 线性扳机：按下 LT / RT 按键时，对应扳机轴直接满量程 255 发送，松开归零
+                gp.setTriggers(
+                    if (ids.any { it == "LT" }) 255 else 0,
+                    if (ids.any { it == "RT" }) 255 else 0
+                )
                 if (lx != lastLx || ly != lastLy || rx != lastRx || ry != lastRy) {
                     Log.d(TAG, "Stick report: L=($lx,$ly), R=($rx,$ry)")
                     lastLx = lx

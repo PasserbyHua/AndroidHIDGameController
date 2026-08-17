@@ -36,6 +36,9 @@ class BluetoothHidGamepad(
     private var hatSwitch = HAT_CENTER
     private var leftX = 0
     private var leftY = 0
+    // 左右扳机线性轴（Brake / Gas）
+    private var triggerL = 0
+    private var triggerR = 0
     private var rightX = 0
     private var rightY = 0
     private val reportBuffer = ByteArray(GamepadReportDescriptor.REPORT_LENGTH)
@@ -57,12 +60,12 @@ class BluetoothHidGamepad(
         reportBuffer[2] = hatSwitch.toByte()
         reportBuffer[3] = leftX.toByte()
         reportBuffer[4] = leftY.toByte()
-        // 右摇杆主映射：Z / Rz（字节 5、6）
+        // 右摇杆：Z / Rz（字节 5、6），Android 被控端识别此映射
         reportBuffer[5] = rightX.toByte()
         reportBuffer[6] = rightY.toByte()
-        // 右摇杆别名映射：Rx / Ry（字节 7、8），兼容不同被控端的轴映射约定
-        reportBuffer[7] = rightX.toByte()
-        reportBuffer[8] = rightY.toByte()
+        // 左右扳机：Brake / Clutch（字节 7、8），线性压感
+        reportBuffer[7] = triggerL.toByte()
+        reportBuffer[8] = triggerR.toByte()
         hidDevice.sendReport(remoteDevice, 1, reportBuffer)
     }
 
@@ -90,6 +93,8 @@ class BluetoothHidGamepad(
         hatSwitch = HAT_CENTER
         leftX = 0
         leftY = 0
+        triggerL = 0
+        triggerR = 0
         rightX = 0
         rightY = 0
         sendReport()
@@ -103,5 +108,12 @@ class BluetoothHidGamepad(
     fun setRightStick(x: Int, y: Int) {
         rightX = x.coerceIn(-127, 127)
         rightY = y.coerceIn(-127, 127)
+    }
+
+    // 设置左右扳机线性压感值：left 对应 Brake（左扳机），right 对应 Accelerator/Gas（右扳机）
+    // 逻辑范围为 0~255，保证 Android /255 归一化后满量程
+    fun setTriggers(left: Int, right: Int) {
+        triggerL = left.coerceIn(0, 255)
+        triggerR = right.coerceIn(0, 255)
     }
 }
