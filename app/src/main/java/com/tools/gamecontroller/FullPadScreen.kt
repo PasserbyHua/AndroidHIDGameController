@@ -1,11 +1,14 @@
 package com.tools.gamecontroller
 
+import android.bluetooth.BluetoothDevice
 import android.content.Context
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,9 +17,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -194,8 +201,7 @@ private fun resolveHit(
 
 @Composable
 fun FullPadScreen(
-    manager: BluetoothHidManager,
-    onBack: () -> Unit
+    manager: BluetoothHidManager
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -217,6 +223,9 @@ fun FullPadScreen(
     var activeControls by remember { mutableStateOf(mapOf<PointerId, String>()) }
     var stickOffsets by remember { mutableStateOf(mapOf<String, Offset>()) }
     var isConnected by remember { mutableStateOf(manager.isConnected()) }
+    // 配对弹窗状态
+    var showConnectDialog by remember { mutableStateOf(false) }
+    var pairedDevices by remember { mutableStateOf(listOf<BluetoothDevice>()) }
 
     fun centerOf(id: String): Offset {
         val p = positions[id] ?: return Offset.Zero
@@ -426,7 +435,24 @@ fun FullPadScreen(
                     .padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Button(onClick = onBack) { Text("返回", fontSize = 14.sp) }
+                Button(onClick = {
+                    val devices = manager.getPairedDevices()
+                    if (devices.isEmpty()) {
+                        Toast.makeText(context, "没有已配对的蓝牙设备，请先在系统设置中配对", Toast.LENGTH_LONG).show()
+                    } else {
+                        pairedDevices = devices
+                        showConnectDialog = true
+                    }
+                }) { Text("连接", fontSize = 14.sp) }
+                Spacer(Modifier.size(8.dp))
+                Button(onClick = {
+                    if (manager.isConnected()) {
+                        manager.disconnect()
+                        Toast.makeText(context, "正在断开连接", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "当前未连接设备", Toast.LENGTH_SHORT).show()
+                    }
+                }) { Text("断开", fontSize = 14.sp) }
                 Spacer(Modifier.size(8.dp))
                 Button(onClick = { toolbarVisible = false }) { Text("隐藏", fontSize = 14.sp) }
                 Spacer(Modifier.weight(1f))
@@ -471,6 +497,38 @@ fun FullPadScreen(
                     }
                 }) { Text(if (editMode) "完成编辑" else "编辑布局", fontSize = 14.sp) }
             }
+        }
+
+        // ---------- 设备选择弹窗 ----------
+        if (showConnectDialog) {
+            AlertDialog(
+                onDismissRequest = { showConnectDialog = false },
+                title = { Text("选择要连接的设备") },
+                text = {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        pairedDevices.forEach { device ->
+                            TextButton(
+                                onClick = {
+                                    showConnectDialog = false
+                                    manager.connect(device.address)
+                                    Toast.makeText(
+                                        context,
+                                        "正在连接 ${device.name ?: device.address}",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(device.name ?: device.address)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = { showConnectDialog = false }) { Text("取消") }
+                }
+            )
         }
 
         // ---------- 工具栏隐藏时，屏幕中央显示“显示顶部” ----------
