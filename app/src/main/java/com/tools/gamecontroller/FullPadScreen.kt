@@ -471,6 +471,7 @@ fun FullPadScreen(
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(Modifier.weight(1f))
+                // 恢复默认、缩小、放大只在编辑布局时显示
                 if (editMode) {
                     Button(
                         colors = ButtonDefaults.buttonColors(containerColor = toolbarButtonColor),
@@ -480,28 +481,28 @@ fun FullPadScreen(
                             savePositions(context, positions.toMap())
                         }
                     ) { Text("恢复默认", fontSize = 14.sp) }
+                    Spacer(Modifier.size(4.dp))
+                    Button(
+                        colors = ButtonDefaults.buttonColors(containerColor = toolbarButtonColor),
+                        enabled = buttonScale > 1f,
+                        onClick = {
+                            val newScale = (buttonScale - 0.1f).coerceAtLeast(1f)
+                            buttonScale = newScale
+                            saveButtonScale(context, newScale)
+                        }
+                    ) { Text("缩小", fontSize = 14.sp) }
+                    Spacer(Modifier.size(4.dp))
+                    Button(
+                        colors = ButtonDefaults.buttonColors(containerColor = toolbarButtonColor),
+                        enabled = buttonScale < 2f,
+                        onClick = {
+                            val newScale = (buttonScale + 0.1f).coerceAtMost(2f)
+                            buttonScale = newScale
+                            saveButtonScale(context, newScale)
+                        }
+                    ) { Text("放大", fontSize = 14.sp) }
+                    Spacer(Modifier.size(4.dp))
                 }
-                Spacer(Modifier.size(4.dp))
-                Button(
-                    colors = ButtonDefaults.buttonColors(containerColor = toolbarButtonColor),
-                    enabled = buttonScale > 1f,
-                    onClick = {
-                        val newScale = (buttonScale - 0.1f).coerceAtLeast(1f)
-                        buttonScale = newScale
-                        saveButtonScale(context, newScale)
-                    }
-                ) { Text("缩小", fontSize = 14.sp) }
-                Spacer(Modifier.size(4.dp))
-                Button(
-                    colors = ButtonDefaults.buttonColors(containerColor = toolbarButtonColor),
-                    enabled = buttonScale < 2f,
-                    onClick = {
-                        val newScale = (buttonScale + 0.1f).coerceAtMost(2f)
-                        buttonScale = newScale
-                        saveButtonScale(context, newScale)
-                    }
-                ) { Text("放大", fontSize = 14.sp) }
-                Spacer(Modifier.size(4.dp))
                 Button(
                     colors = ButtonDefaults.buttonColors(containerColor = toolbarButtonColor),
                     onClick = {
