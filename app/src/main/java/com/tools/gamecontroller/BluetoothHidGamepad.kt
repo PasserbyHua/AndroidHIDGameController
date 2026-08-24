@@ -71,6 +71,8 @@ class BluetoothHidGamepad(
         // 左右扳机：Brake / Clutch（字节 7、8），线性压感
         reportBuffer[7] = triggerL.toByte()
         reportBuffer[8] = triggerR.toByte()
+        // 无条件发送：即使内容没变也持续重发（MCU 式轮询），
+        // 蓝牙 HID 传输不保证送达，靠后续相同报告的重发保证最终一致
         hidDevice.sendReport(remoteDevice, 1, reportBuffer)
     }
 

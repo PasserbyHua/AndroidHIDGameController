@@ -285,57 +285,51 @@ fun FullPadScreen(
         stickOffsets = emptyMap()
     }
 
-    // 125Hz 轮询上报
+    // 将当前控件状态计算成 HID 报告并发送。
+    // 触摸事件里即时调用（按下/抬起当帧生效，不必等下一轮轮询），
+    // 8ms 轮询循环保持无条件重发，不依赖这里的即时发送保证可靠性
+    fun dispatchCurrentState() {
+        val gp = manager.gamepad ?: return
+        if (!manager.isConnected()) return
+        val ids = activeControls.values
+        var btn = 0
+        PAD_BUTTONS.forEach { def ->
+            if (def.hatDir == null && ids.any { it == def.id }) btn = btn or def.mask
+        }
+
+        val up = ids.any { it == "UP" }
+        val down = ids.any { it == "DOWN" }
+        val left = ids.any { it == "LEFT" }
+        val right = ids.any { it == "RIGHT" }
+        val hat = when {
+            up && right -> BluetoothHidGamepad.HAT_UP_RIGHT
+            down && right -> BluetoothHidGamepad.HAT_DOWN_RIGHT
+            down && left -> BluetoothHidGamepad.HAT_DOWN_LEFT
+            up && left -> BluetoothHidGamepad.HAT_UP_LEFT
+            up -> BluetoothHidGamepad.HAT_UP
+            down -> BluetoothHidGamepad.HAT_DOWN
+            left -> BluetoothHidGamepad.HAT_LEFT
+            right -> BluetoothHidGamepad.HAT_RIGHT
+            else -> BluetoothHidGamepad.HAT_CENTER
+        }
+
+        gp.setState(btn, hat)
+        val (lx, ly) = stickValue("STICK_L")
+        val (rx, ry) = stickValue("STICK_R")
+        gp.setLeftStick(lx, ly)
+        gp.setRightStick(rx, ry)
+        // 线性扳机：按下 LT / RT 按键时，对应扳机轴直接满量程 255 发送，松开归零
+        gp.setTriggers(
+            if (ids.any { it == "LT" }) 255 else 0,
+            if (ids.any { it == "RT" }) 255 else 0
+        )
+        gp.sendReport()
+    }
+
+    // 8ms 轮询兜底：触摸事件即时发送后，这里只补发可能漏掉的状态变化
     LaunchedEffect(Unit) {
-        Log.d(TAG, "启动轮询循环: 125Hz")
-        var lastLx = 0
-        var lastLy = 0
-        var lastRx = 0
-        var lastRy = 0
         while (true) {
-            val gp = manager.gamepad
-            if (gp != null && manager.isConnected()) {
-                val ids = activeControls.values
-                var btn = 0
-                PAD_BUTTONS.forEach { def ->
-                    if (def.hatDir == null && ids.any { it == def.id }) btn = btn or def.mask
-                }
-
-                val up = ids.any { it == "UP" }
-                val down = ids.any { it == "DOWN" }
-                val left = ids.any { it == "LEFT" }
-                val right = ids.any { it == "RIGHT" }
-                val hat = when {
-                    up && right -> BluetoothHidGamepad.HAT_UP_RIGHT
-                    down && right -> BluetoothHidGamepad.HAT_DOWN_RIGHT
-                    down && left -> BluetoothHidGamepad.HAT_DOWN_LEFT
-                    up && left -> BluetoothHidGamepad.HAT_UP_LEFT
-                    up -> BluetoothHidGamepad.HAT_UP
-                    down -> BluetoothHidGamepad.HAT_DOWN
-                    left -> BluetoothHidGamepad.HAT_LEFT
-                    right -> BluetoothHidGamepad.HAT_RIGHT
-                    else -> BluetoothHidGamepad.HAT_CENTER
-                }
-
-                gp.setState(btn, hat)
-                val (lx, ly) = stickValue("STICK_L")
-                val (rx, ry) = stickValue("STICK_R")
-                gp.setLeftStick(lx, ly)
-                gp.setRightStick(rx, ry)
-                // 线性扳机：按下 LT / RT 按键时，对应扳机轴直接满量程 255 发送，松开归零
-                gp.setTriggers(
-                    if (ids.any { it == "LT" }) 255 else 0,
-                    if (ids.any { it == "RT" }) 255 else 0
-                )
-                if (lx != lastLx || ly != lastLy || rx != lastRx || ry != lastRy) {
-                    Log.d(TAG, "Stick report: L=($lx,$ly), R=($rx,$ry)")
-                    lastLx = lx
-                    lastLy = ly
-                    lastRx = rx
-                    lastRy = ry
-                }
-                gp.sendReport()
-            }
+            dispatchCurrentState()
             delay(8)
         }
     }
@@ -420,6 +414,8 @@ fun FullPadScreen(
                             val heldSticks = next.values.filter { it.startsWith("STICK_") }.toSet()
                             stickOffsets = newOffsets.filterKeys { it in heldSticks }
                             activeControls = next
+                            // 状态已更新，立即上报，不等下一轮轮询
+                            dispatchCurrentState()
                         }
                     }
                 }
@@ -429,6 +425,13 @@ fun FullPadScreen(
         PAD_STICKS.forEach { stick ->
             val center = centerOf(stick.id)
             val knobOffset = stickOffsets[stick.id] ?: Offset.Zero
+            // remember 固定拖拽回调实例，配合不可变参数让 StickView 在无关状态变化时跳过重组。
+            // 外层大括号是 remember 的计算块，内层才是返回的 lambda；
+            // positions/canvasSize 等状态在 lambda 调用时实时读取，不会捕获到旧值
+            val onDrag = remember(stick.id, density) { { drag: Offset ->
+                val cur = positions[stick.id] ?: Offset.Zero
+                positions[stick.id] = clampPosition(cur, drag, canvasSize, toolbarHeightPx, density)
+            } }
             StickView(
                 id = stick.id,
                 centerPx = center,
@@ -436,28 +439,26 @@ fun FullPadScreen(
                 knobRadiusPx = stickKnobRadiusPx,
                 knobOffsetPx = knobOffset,
                 editMode = editMode,
-                onDrag = { drag ->
-                        val cur = positions[stick.id] ?: Offset.Zero
-                        positions[stick.id] = clampPosition(cur, drag, canvasSize, toolbarHeightPx, density)
-                    }
-                )
+                onDrag = onDrag
+            )
         }
 
         // ---------- 按键 ----------
         PAD_BUTTONS.forEach { def ->
             val center = centerOf(def.id)
             val pressed = activeControls.values.any { it == def.id }
+            val onDrag = remember(def.id, density) { { drag: Offset ->
+                val cur = positions[def.id] ?: Offset.Zero
+                positions[def.id] = clampPosition(cur, drag, canvasSize, toolbarHeightPx, density)
+            } }
             PadButtonView(
                 def = def,
                 centerPx = center,
                 radiusPx = buttonRadiusPx,
                 pressed = pressed,
                 editMode = editMode,
-                onDrag = { drag ->
-                        val cur = positions[def.id] ?: Offset.Zero
-                        positions[def.id] = clampPosition(cur, drag, canvasSize, toolbarHeightPx, density)
-                    }
-                )
+                onDrag = onDrag
+            )
         }
 
         // ---------- 顶部工具栏（后声明，绘制在最上层；可通过“隐藏”按钮收起） ----------
@@ -558,9 +559,10 @@ fun FullPadScreen(
                     onClick = {
                         editMode = !editMode
                         if (editMode) {
-                            // 进入编辑模式时释放全部按键
+                            // 进入编辑模式时释放全部按键并立即上报
                             activeControls = emptyMap()
                             stickOffsets = emptyMap()
+                            dispatchCurrentState()
                         }
                     }
                 ) { Text(if (editMode) "完成编辑" else "编辑布局", fontSize = 14.sp) }
@@ -602,7 +604,9 @@ fun FullPadScreen(
         // ---------- 保存布局配置弹窗 ----------
         if (showSaveDialog) {
             val trimmedName = layoutNameInput.trim()
-            val nameDuplicated = trimmedName.isNotEmpty() &&
+            // 「默认」是保留配置不可覆盖；其他已有名称提示换名；当前配置名允许覆盖更新
+            val nameReserved = trimmedName == DEFAULT_LAYOUT_NAME
+            val nameDuplicated = !nameReserved && trimmedName.isNotEmpty() &&
                 savedLayouts.containsKey(trimmedName) && trimmedName != currentLayoutName
             AlertDialog(
                 onDismissRequest = { showSaveDialog = false },
@@ -616,9 +620,12 @@ fun FullPadScreen(
                             onValueChange = { layoutNameInput = it },
                             label = { Text("配置名称") },
                             singleLine = true,
-                            isError = nameDuplicated
+                            isError = nameReserved || nameDuplicated
                         )
-                        if (nameDuplicated) {
+                        if (nameReserved) {
+                            Spacer(Modifier.height(4.dp))
+                            Text("「默认」是保留配置，不能覆盖保存", color = Color(0xFFF44336), fontSize = 13.sp)
+                        } else if (nameDuplicated) {
                             Spacer(Modifier.height(4.dp))
                             Text("该名称已存在，请换一个", color = Color(0xFFF44336), fontSize = 13.sp)
                         }
@@ -626,7 +633,7 @@ fun FullPadScreen(
                 },
                 confirmButton = {
                     TextButton(
-                        enabled = trimmedName.isNotEmpty() && !nameDuplicated,
+                        enabled = trimmedName.isNotEmpty() && !nameReserved && !nameDuplicated,
                         onClick = {
                             savedLayouts = savedLayouts + (trimmedName to SavedLayout(positions.toMap(), buttonScale))
                             saveSavedLayouts(context, savedLayouts)
