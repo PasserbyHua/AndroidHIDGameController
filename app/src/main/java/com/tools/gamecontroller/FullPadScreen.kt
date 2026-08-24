@@ -23,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -100,8 +101,8 @@ private val PAD_STICKS = listOf(
 private val toolbarButtonColor = Color(0xFF1B5E20)
 
 private const val PREFS_NAME = "fullpad_layout"
-private const val KEY_POSITIONS = "positions"
-private const val KEY_BUTTON_SCALE = "button_scale"
+private const val KEY_SAVED_LAYOUTS = "saved_layouts"
+private const val DEFAULT_LAYOUT_NAME = "默认"
 private const val TAG = "FullPad"
 
 // ============================== 布局持久化 ==============================
@@ -111,52 +112,66 @@ private fun defaultPositions(): Map<String, Offset> = buildMap {
     PAD_STICKS.forEach { put(it.id, Offset(it.defaultX, it.defaultY)) }
 }
 
-private fun loadPositions(context: Context): Map<String, Offset> {
+// 一份已命名的布局配置：按键位置 + 按键缩放
+private data class SavedLayout(
+    val positions: Map<String, Offset>,
+    val buttonScale: Float
+)
+
+private fun loadSavedLayouts(context: Context): Map<String, SavedLayout> {
     val json = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        .getString(KEY_POSITIONS, null) ?: return defaultPositions()
+        .getString(KEY_SAVED_LAYOUTS, null) ?: return emptyMap()
     return try {
         val obj = JSONObject(json)
-        val map = defaultPositions().toMutableMap()
-        val keys = obj.keys()
-        while (keys.hasNext()) {
-            val key = keys.next()
-            if (map.containsKey(key)) {
-                val arr = obj.getJSONArray(key)
-                if (arr.length() >= 2) {
-                    map[key] = Offset(
-                        arr.getDouble(0).toFloat().coerceIn(0f, 1f),
-                        arr.getDouble(1).toFloat().coerceIn(0f, 1f)
-                    )
+        buildMap {
+            for (name in obj.keys()) {
+                val layoutObj = obj.getJSONObject(name)
+                // 以默认布局为底合并，忽略未知的控件 id
+                val merged = defaultPositions().toMutableMap()
+                val posObj = layoutObj.getJSONObject("positions")
+                for (id in posObj.keys()) {
+                    if (!merged.containsKey(id)) continue
+                    val arr = posObj.getJSONArray(id)
+                    if (arr.length() >= 2) {
+                        merged[id] = Offset(
+                            arr.getDouble(0).toFloat().coerceIn(0f, 1f),
+                            arr.getDouble(1).toFloat().coerceIn(0f, 1f)
+                        )
+                    }
                 }
+                put(
+                    name,
+                    SavedLayout(merged, layoutObj.getDouble("scale").toFloat().coerceIn(1f, 2f))
+                )
             }
         }
-        map
     } catch (e: Exception) {
-        Log.w(TAG, "解析布局失败，使用默认布局", e)
-        defaultPositions()
+        Log.w(TAG, "解析布局配置失败，使用默认布局", e)
+        emptyMap()
     }
 }
 
-private fun savePositions(context: Context, map: Map<String, Offset>) {
+private fun saveSavedLayouts(context: Context, layouts: Map<String, SavedLayout>) {
     val obj = JSONObject()
-    map.forEach { (key, value) ->
-        obj.put(key, JSONArray().put(value.x.toDouble()).put(value.y.toDouble()))
+    layouts.forEach { (name, layout) ->
+        val posObj = JSONObject()
+        layout.positions.forEach { (id, p) ->
+            posObj.put(id, JSONArray().put(p.x.toDouble()).put(p.y.toDouble()))
+        }
+        obj.put(name, JSONObject().put("positions", posObj).put("scale", layout.buttonScale.toDouble()))
     }
     context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        .edit().putString(KEY_POSITIONS, obj.toString()).apply()
+        .edit().putString(KEY_SAVED_LAYOUTS, obj.toString()).apply()
 }
 
-private fun loadButtonScale(context: Context): Float {
-    return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        .getFloat(KEY_BUTTON_SCALE, 1f)
-        .coerceIn(1f, 2f)
-}
-
-private fun saveButtonScale(context: Context, scale: Float) {
-    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        .edit()
-        .putFloat(KEY_BUTTON_SCALE, scale.coerceIn(1f, 2f))
-        .apply()
+// 默认配置永远存在且不可删除，每次启动时加载它
+private fun loadLayoutsWithDefault(context: Context): Map<String, SavedLayout> {
+    val layouts = loadSavedLayouts(context).toMutableMap()
+    if (!layouts.containsKey(DEFAULT_LAYOUT_NAME)) {
+        layouts[DEFAULT_LAYOUT_NAME] = SavedLayout(defaultPositions(), 1f)
+        saveSavedLayouts(context, layouts)
+    }
+    return layouts
 }
 
 // ============================== 命中检测 ==============================
@@ -210,8 +225,12 @@ fun FullPadScreen(
     val context = LocalContext.current
     val density = LocalDensity.current
     val baseButtonRadiusPx = with(density) { 32.dp.toPx() }
+    // 已保存的布局配置；启动时确保默认配置存在，每次打开都加载默认配置
+    var savedLayouts by remember { mutableStateOf(loadLayoutsWithDefault(context)) }
+    var currentLayoutName by remember { mutableStateOf(DEFAULT_LAYOUT_NAME) }
+    val startupLayout = savedLayouts[DEFAULT_LAYOUT_NAME] ?: SavedLayout(defaultPositions(), 1f)
     // 按键整体缩放：1.0 为当前代码里的基准大小，最大 2.0（增大 100%），最小 1.0
-    var buttonScale by remember { mutableStateOf(loadButtonScale(context)) }
+    var buttonScale by remember { mutableStateOf(startupLayout.buttonScale) }
     val buttonRadiusPx = baseButtonRadiusPx * buttonScale
     val stickOuterRadiusPx = with(density) { 64.dp.toPx() }
     val stickKnobRadiusPx = with(density) { 26.dp.toPx() }
@@ -221,7 +240,7 @@ fun FullPadScreen(
     val showToolbarButtonWidthPx = with(density) { 105.dp.toPx() }
     val showToolbarButtonHeightPx = with(density) { 36.dp.toPx() }
 
-    var positions = remember { mutableStateMapOf<String, Offset>().apply { putAll(loadPositions(context)) } }
+    var positions = remember { mutableStateMapOf<String, Offset>().apply { putAll(startupLayout.positions) } }
     var editMode by remember { mutableStateOf(false) }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     var activeControls by remember { mutableStateOf(mapOf<PointerId, String>()) }
@@ -230,6 +249,11 @@ fun FullPadScreen(
     // 配对弹窗状态
     var showConnectDialog by remember { mutableStateOf(false) }
     var pairedDevices by remember { mutableStateOf(listOf<BluetoothDevice>()) }
+    // 布局配置弹窗状态
+    var showSaveDialog by remember { mutableStateOf(false) }
+    var showLoadDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var layoutNameInput by remember { mutableStateOf("") }
 
     fun centerOf(id: String): Offset {
         val p = positions[id] ?: return Offset.Zero
@@ -249,6 +273,16 @@ fun FullPadScreen(
         val ux = o.x / len
         val uy = o.y / len
         return (ux * scaled).roundToInt() to (uy * scaled).roundToInt()
+    }
+
+    // 应用一份布局配置：更新按键位置与缩放，并释放所有按压状态
+    fun applyLayout(name: String, layout: SavedLayout) {
+        positions.clear()
+        positions.putAll(layout.positions)
+        buttonScale = layout.buttonScale
+        currentLayoutName = name
+        activeControls = emptyMap()
+        stickOffsets = emptyMap()
     }
 
     // 125Hz 轮询上报
@@ -403,11 +437,10 @@ fun FullPadScreen(
                 knobOffsetPx = knobOffset,
                 editMode = editMode,
                 onDrag = { drag ->
-                    val cur = positions[stick.id] ?: Offset.Zero
-                    positions[stick.id] = clampPosition(cur, drag, canvasSize, toolbarHeightPx, density)
-                },
-                onDragEnd = { savePositions(context, positions.toMap()) }
-            )
+                        val cur = positions[stick.id] ?: Offset.Zero
+                        positions[stick.id] = clampPosition(cur, drag, canvasSize, toolbarHeightPx, density)
+                    }
+                )
         }
 
         // ---------- 按键 ----------
@@ -421,11 +454,10 @@ fun FullPadScreen(
                 pressed = pressed,
                 editMode = editMode,
                 onDrag = { drag ->
-                    val cur = positions[def.id] ?: Offset.Zero
-                    positions[def.id] = clampPosition(cur, drag, canvasSize, toolbarHeightPx, density)
-                },
-                onDragEnd = { savePositions(context, positions.toMap()) }
-            )
+                        val cur = positions[def.id] ?: Offset.Zero
+                        positions[def.id] = clampPosition(cur, drag, canvasSize, toolbarHeightPx, density)
+                    }
+                )
         }
 
         // ---------- 顶部工具栏（后声明，绘制在最上层；可通过“隐藏”按钮收起） ----------
@@ -471,6 +503,33 @@ fun FullPadScreen(
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(Modifier.weight(1f))
+                // 保存、加载、删除只在非编辑布局时显示，与编辑模式的按钮组互补
+                if (!editMode) {
+                    Button(
+                        colors = ButtonDefaults.buttonColors(containerColor = toolbarButtonColor),
+                        onClick = {
+                            layoutNameInput = ""
+                            showSaveDialog = true
+                        }
+                    ) { Text("保存", fontSize = 14.sp) }
+                    Spacer(Modifier.size(4.dp))
+                    Button(
+                        colors = ButtonDefaults.buttonColors(containerColor = toolbarButtonColor),
+                        onClick = { showLoadDialog = true }
+                    ) { Text("加载", fontSize = 14.sp) }
+                    Spacer(Modifier.size(4.dp))
+                    Button(
+                        colors = ButtonDefaults.buttonColors(containerColor = toolbarButtonColor),
+                        onClick = {
+                            if (currentLayoutName == DEFAULT_LAYOUT_NAME) {
+                                Toast.makeText(context, "默认配置不能删除", Toast.LENGTH_SHORT).show()
+                            } else {
+                                showDeleteDialog = true
+                            }
+                        }
+                    ) { Text("删除", fontSize = 14.sp) }
+                    Spacer(Modifier.size(4.dp))
+                }
                 // 恢复默认、缩小、放大只在编辑布局时显示
                 if (editMode) {
                     Button(
@@ -478,28 +537,19 @@ fun FullPadScreen(
                         onClick = {
                             positions.clear()
                             positions.putAll(defaultPositions())
-                            savePositions(context, positions.toMap())
                         }
                     ) { Text("恢复默认", fontSize = 14.sp) }
                     Spacer(Modifier.size(4.dp))
                     Button(
                         colors = ButtonDefaults.buttonColors(containerColor = toolbarButtonColor),
                         enabled = buttonScale > 1f,
-                        onClick = {
-                            val newScale = (buttonScale - 0.1f).coerceAtLeast(1f)
-                            buttonScale = newScale
-                            saveButtonScale(context, newScale)
-                        }
+                        onClick = { buttonScale = (buttonScale - 0.1f).coerceAtLeast(1f) }
                     ) { Text("缩小", fontSize = 14.sp) }
                     Spacer(Modifier.size(4.dp))
                     Button(
                         colors = ButtonDefaults.buttonColors(containerColor = toolbarButtonColor),
                         enabled = buttonScale < 2f,
-                        onClick = {
-                            val newScale = (buttonScale + 0.1f).coerceAtMost(2f)
-                            buttonScale = newScale
-                            saveButtonScale(context, newScale)
-                        }
+                        onClick = { buttonScale = (buttonScale + 0.1f).coerceAtMost(2f) }
                     ) { Text("放大", fontSize = 14.sp) }
                     Spacer(Modifier.size(4.dp))
                 }
@@ -549,6 +599,106 @@ fun FullPadScreen(
             )
         }
 
+        // ---------- 保存布局配置弹窗 ----------
+        if (showSaveDialog) {
+            val trimmedName = layoutNameInput.trim()
+            val nameDuplicated = trimmedName.isNotEmpty() &&
+                savedLayouts.containsKey(trimmedName) && trimmedName != currentLayoutName
+            AlertDialog(
+                onDismissRequest = { showSaveDialog = false },
+                title = { Text("保存布局配置") },
+                text = {
+                    Column {
+                        Text("当前配置：$currentLayoutName（输入相同名称则覆盖更新）")
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = layoutNameInput,
+                            onValueChange = { layoutNameInput = it },
+                            label = { Text("配置名称") },
+                            singleLine = true,
+                            isError = nameDuplicated
+                        )
+                        if (nameDuplicated) {
+                            Spacer(Modifier.height(4.dp))
+                            Text("该名称已存在，请换一个", color = Color(0xFFF44336), fontSize = 13.sp)
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = trimmedName.isNotEmpty() && !nameDuplicated,
+                        onClick = {
+                            savedLayouts = savedLayouts + (trimmedName to SavedLayout(positions.toMap(), buttonScale))
+                            saveSavedLayouts(context, savedLayouts)
+                            currentLayoutName = trimmedName
+                            showSaveDialog = false
+                            Toast.makeText(context, "已保存配置：$trimmedName", Toast.LENGTH_SHORT).show()
+                        }
+                    ) { Text("确定") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showSaveDialog = false }) { Text("取消") }
+                }
+            )
+        }
+
+        // ---------- 加载布局配置弹窗 ----------
+        if (showLoadDialog) {
+            // 默认配置固定排第一，其余按名称排序
+            val layoutNames = savedLayouts.keys.sortedWith(compareBy({ it != DEFAULT_LAYOUT_NAME }, { it }))
+            AlertDialog(
+                onDismissRequest = { showLoadDialog = false },
+                title = { Text("加载布局配置") },
+                text = {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        layoutNames.forEach { name ->
+                            val layout = savedLayouts[name] ?: return@forEach
+                            TextButton(
+                                onClick = {
+                                    applyLayout(name, layout)
+                                    showLoadDialog = false
+                                    Toast.makeText(context, "已加载配置：$name", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(if (name == currentLayoutName) "$name（当前）" else name)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = { showLoadDialog = false }) { Text("取消") }
+                }
+            )
+        }
+
+        // ---------- 删除布局配置确认弹窗 ----------
+        if (showDeleteDialog) {
+            AlertDialog(
+                onDismissRequest = { showDeleteDialog = false },
+                title = { Text("删除配置") },
+                text = { Text("确定删除当前配置「$currentLayoutName」吗？删除后将恢复默认配置。") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            savedLayouts = savedLayouts - currentLayoutName
+                            saveSavedLayouts(context, savedLayouts)
+                            applyLayout(
+                                DEFAULT_LAYOUT_NAME,
+                                savedLayouts[DEFAULT_LAYOUT_NAME] ?: SavedLayout(defaultPositions(), 1f)
+                            )
+                            showDeleteDialog = false
+                            Toast.makeText(context, "已删除配置，已恢复默认配置", Toast.LENGTH_SHORT).show()
+                        }
+                    ) { Text("删除") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteDialog = false }) { Text("取消") }
+                }
+            )
+        }
+
         // ---------- 工具栏隐藏时，顶部中间显示“显示顶部” ----------
         if (!toolbarVisible) {
             Button(
@@ -573,7 +723,7 @@ fun FullPadScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 Text(
-                    "编辑模式：拖动按键 / 摇杆调整位置，完成后点击「完成编辑」",
+                    "编辑模式：拖动按键 / 摇杆调整位置，完成后点「完成编辑」，再点「保存」持久化",
                     color = Color.White,
                     fontSize = 13.sp
                 )
@@ -605,8 +755,7 @@ private fun PadButtonView(
     radiusPx: Float,
     pressed: Boolean,
     editMode: Boolean,
-    onDrag: (Offset) -> Unit,
-    onDragEnd: () -> Unit
+    onDrag: (Offset) -> Unit
 ) {
     val density = LocalDensity.current
     val diameter = with(density) { (radiusPx * 2).toDp() }
@@ -621,8 +770,7 @@ private fun PadButtonView(
                             onDrag = { change, drag ->
                                 change.consume()
                                 onDrag(drag)
-                            },
-                            onDragEnd = onDragEnd
+                            }
                         )
                     }
                 } else Modifier
@@ -653,8 +801,7 @@ private fun StickView(
     knobRadiusPx: Float,
     knobOffsetPx: Offset,
     editMode: Boolean,
-    onDrag: (Offset) -> Unit,
-    onDragEnd: () -> Unit
+    onDrag: (Offset) -> Unit
 ) {
     val density = LocalDensity.current
     val outerDp = with(density) { (outerRadiusPx * 2).toDp() }
@@ -670,8 +817,7 @@ private fun StickView(
                             onDrag = { change, drag ->
                                 change.consume()
                                 onDrag(drag)
-                            },
-                            onDragEnd = onDragEnd
+                            }
                         )
                     }
                 } else Modifier
